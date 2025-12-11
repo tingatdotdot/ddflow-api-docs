@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ddflow API Documentation</title>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: "Noto Sans TC", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 40px 20px;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    header {
+      text-align: center;
+      margin-bottom: 40px;
+      color: white;
+    }
+    header h1 {
+      font-size: 2.5rem;
+      margin-bottom: 10px;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+    header p {
+      font-size: 1.1rem;
+      opacity: 0.9;
+    }
+    .api-cards {
+      display: grid;
+      gap: 20px;
+    }
+    .api-card {
+      background: white;
+      border-radius: 12px;
+      padding: 24px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.15);
+      transition: transform 0.2s, box-shadow 0.2s;
+      text-decoration: none;
+      color: inherit;
+      display: block;
+    }
+    .api-card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 15px 50px rgba(0,0,0,0.2);
+    }
+    .api-card h2 {
+      font-size: 1.4rem;
+      color: #1976d2;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .api-card h2::before {
+      content: "";
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      background: #4caf50;
+      border-radius: 50%;
+    }
+    .api-card p {
+      color: #666;
+      line-height: 1.6;
+      margin-bottom: 12px;
+    }
+    .api-card .meta {
+      display: flex;
+      gap: 16px;
+      font-size: 0.85rem;
+      color: #999;
+    }
+    .api-card .meta span {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 500;
+      text-transform: uppercase;
+    }
+    .badge-webhook {
+      background: #e3f2fd;
+      color: #1976d2;
+    }
+    .badge-rest {
+      background: #e8f5e9;
+      color: #388e3c;
+    }
+    footer {
+      text-align: center;
+      margin-top: 40px;
+      color: rgba(255,255,255,0.7);
+      font-size: 0.9rem;
+    }
+    footer a {
+      color: white;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>ddflow API Documentation</h1>
+      <p>薪資墊付系統 API 文件</p>
+    </header>
+
+    <div class="api-cards">
+      <a href="./aibou-webhook.html" class="api-card">
+        <h2>AIBOU Webhook API</h2>
+        <p>
+          定義 AIBOU 系統需實作的 Webhook 端點，用於接收 ddflow 系統發送的撥款完成與逾時通知。
+          包含撥款完成通知 (Disbursement Complete) 和逾時通知 (Timeout) 兩種類型。
+        </p>
+        <div class="meta">
+          <span class="badge badge-webhook">Webhook</span>
+          <span>版本: 1.0.0</span>
+          <span>2 個端點</span>
+        </div>
+      </a>
+
+      <a href="./alpha-webhook.html" class="api-card">
+        <h2>ALPHA Webhook API</h2>
+        <p>
+          定義 ddflow 系統提供給 ALPHA 呼叫的 Webhook 端點。
+          當 LINE 確認完成或逾時時，ALPHA 系統會呼叫這些端點通知 ddflow。
+        </p>
+        <div class="meta">
+          <span class="badge badge-webhook">Webhook</span>
+          <span>版本: 1.0.0</span>
+          <span>3 個端點</span>
+        </div>
+      </a>
+    </div>
+
+    <footer>
+      <p>Powered by <a href="https://redocly.com/redoc/" target="_blank">Redoc</a> | ddflow &copy; 2024</p>
+    </footer>
+  </div>
+</body>
+</html>

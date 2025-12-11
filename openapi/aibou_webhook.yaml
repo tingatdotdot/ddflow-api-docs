@@ -1,0 +1,456 @@
+openapi: 3.1.0
+info:
+  title: AIBOU Webhook API
+  version: 1.0.0
+  description: |
+    ## AIBOU Webhook 接收端點
+
+    此文件定義 AIBOU 系統需實作的 Webhook 端點，用於接收 ddflow 系統發送的撥款完成與逾時通知。
+
+    ### 通知類型
+    - **撥款完成通知 (Disbursement Complete)**: 當薪資墊付撥款作業完成時發送
+    - **逾時通知 (Timeout)**: 當 LINE 確認逾時時發送
+
+    ### 認證方式
+    所有 Webhook 請求將包含簽章驗證（待確認實作方式）
+
+    ### 重試機制
+    若 Webhook 回應非 2xx 狀態碼，系統將進行重試（最多 3 次，間隔 1 分鐘）
+
+servers:
+  - url: https://api.aibou.example.com
+    description: AIBOU Production Server
+  - url: https://api-staging.aibou.example.com
+    description: AIBOU Staging Server
+
+paths:
+  /webhooks/ddflow/disbursement-complete:
+    post:
+      operationId: notifyDisbursementComplete
+      summary: 撥款完成通知
+      description: |
+        當薪資墊付撥款作業完成時，ddflow 系統會呼叫此端點通知 AIBOU。
+
+        ### 觸發時機
+        - ACH 轉帳結果回報後
+        - 所有員工撥款狀態已確定（成功或失敗）
+
+        ### 處理建議
+        1. 記錄撥款結果
+        2. 更新內部訂單狀態
+        3. 通知相關人員
+
+      tags:
+        - Webhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DisbursementCompleteRequest'
+            examples:
+              all_success:
+                summary: 全部撥款成功
+                value:
+                  order_code: "PL20241201ABCD1234"
+                  processed_at: "2024-12-01T15:30:00+08:00"
+                  status: "completed"
+                  total_amount: 150000
+                  disbursed_amount: 150000
+                  total_success: 3
+                  total_failed: 0
+                  successful_employees:
+                    - employee_id: "EMP001"
+                      employee_name: "王小明"
+                      amount: 50000
+                      transfer_reference: "TXN202412010001"
+                    - employee_id: "EMP002"
+                      employee_name: "李小華"
+                      amount: 45000
+                      transfer_reference: "TXN202412010002"
+                    - employee_id: "EMP003"
+                      employee_name: "張大文"
+                      amount: 55000
+                      transfer_reference: "TXN202412010003"
+                  failed_employees: []
+              partial_success:
+                summary: 部分撥款失敗
+                value:
+                  order_code: "PL20241201ABCD1234"
+                  processed_at: "2024-12-01T15:30:00+08:00"
+                  status: "partial"
+                  total_amount: 150000
+                  disbursed_amount: 95000
+                  total_success: 2
+                  total_failed: 1
+                  successful_employees:
+                    - employee_id: "EMP001"
+                      employee_name: "王小明"
+                      amount: 50000
+                      transfer_reference: "TXN202412010001"
+                    - employee_id: "EMP002"
+                      employee_name: "李小華"
+                      amount: 45000
+                      transfer_reference: "TXN202412010002"
+                  failed_employees:
+                    - employee_id: "EMP003"
+                      employee_name: "張大文"
+                      amount: 55000
+                      reason: "帳號已凍結"
+      responses:
+        '200':
+          description: 通知接收成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookSuccessResponse'
+              example:
+                success: true
+                message: "Notification received"
+        '400':
+          description: 請求格式錯誤
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookErrorResponse'
+              example:
+                success: false
+                error_code: "INVALID_REQUEST"
+                error: "Missing required field: order_code"
+        '401':
+          description: 認證失敗
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookErrorResponse'
+              example:
+                success: false
+                error_code: "UNAUTHORIZED"
+                error: "Invalid signature"
+        '500':
+          description: 伺服器內部錯誤
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookErrorResponse'
+              example:
+                success: false
+                error_code: "INTERNAL_ERROR"
+                error: "Internal server error"
+
+  /webhooks/ddflow/timeout:
+    post:
+      operationId: notifyTimeout
+      summary: 逾時通知
+      description: |
+        當薪資墊付的 LINE 確認逾時時，ddflow 系統會呼叫此端點通知 AIBOU。
+
+        ### 觸發時機
+        - ALPHA 系統回報 LINE 確認逾時
+        - 等待確認超過設定的時間限制
+
+        ### ddflow 處理流程
+        1. 呼叫 ALPHA API 取消 reserve（釋放額度）
+        2. 更新 PayrollLoan 狀態為 `timeout`
+        3. 發送此 Webhook 通知 AIBOU
+
+        ### 處理建議
+        1. 記錄逾時事件
+        2. 更新內部訂單狀態
+        3. 通知相關人員進行後續處理
+        4. 可選擇透過 retry API 重新發起墊付流程
+
+      tags:
+        - Webhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TimeoutRequest'
+            examples:
+              with_reserve_cancelled:
+                summary: Reserve 已取消
+                value:
+                  order_code: "PL20241201EFGH5678"
+                  customer_id: "CUS-2024-001"
+                  status: "timeout"
+                  notified_at: "2024-12-01T16:00:00+08:00"
+                  message: "墊付確認逾時"
+                  reserve_cancelled: true
+                  refunded_amount: 150000
+              without_reserve_cancelled:
+                summary: Reserve 取消失敗
+                value:
+                  order_code: "PL20241201EFGH5678"
+                  customer_id: "CUS-2024-001"
+                  status: "timeout"
+                  notified_at: "2024-12-01T16:00:00+08:00"
+                  message: "墊付確認逾時"
+                  reserve_cancelled: false
+                  refunded_amount: null
+      responses:
+        '200':
+          description: 通知接收成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookSuccessResponse'
+              example:
+                success: true
+                message: "Timeout notification received"
+        '400':
+          description: 請求格式錯誤
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookErrorResponse'
+              example:
+                success: false
+                error_code: "INVALID_REQUEST"
+                error: "Missing required field: order_code"
+        '401':
+          description: 認證失敗
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookErrorResponse'
+              example:
+                success: false
+                error_code: "UNAUTHORIZED"
+                error: "Invalid signature"
+        '500':
+          description: 伺服器內部錯誤
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookErrorResponse'
+              example:
+                success: false
+                error_code: "INTERNAL_ERROR"
+                error: "Internal server error"
+
+components:
+  schemas:
+    DisbursementCompleteRequest:
+      type: object
+      required:
+        - order_code
+        - processed_at
+        - status
+        - total_amount
+        - disbursed_amount
+        - total_success
+        - total_failed
+        - successful_employees
+        - failed_employees
+      properties:
+        order_code:
+          type: string
+          description: 訂單編號
+          example: "PL20241201ABCD1234"
+        processed_at:
+          type: string
+          format: date-time
+          description: 處理完成時間 (ISO 8601 格式)
+          example: "2024-12-01T15:30:00+08:00"
+        status:
+          type: string
+          enum:
+            - completed
+            - partial
+          description: |
+            撥款狀態
+            - `completed`: 全部撥款成功
+            - `partial`: 部分撥款失敗
+          example: "completed"
+        total_amount:
+          type: integer
+          description: 總撥款金額（原始申請金額）
+          example: 150000
+        disbursed_amount:
+          type: integer
+          description: 實際撥款金額（成功撥款的總額）
+          example: 150000
+        total_success:
+          type: integer
+          description: 成功撥款筆數
+          minimum: 0
+          example: 3
+        total_failed:
+          type: integer
+          description: 失敗撥款筆數
+          minimum: 0
+          example: 0
+        successful_employees:
+          type: array
+          description: 成功撥款的員工清單
+          items:
+            $ref: '#/components/schemas/SuccessfulEmployee'
+        failed_employees:
+          type: array
+          description: 失敗撥款的員工清單
+          items:
+            $ref: '#/components/schemas/FailedEmployee'
+
+    SuccessfulEmployee:
+      type: object
+      required:
+        - employee_id
+        - employee_name
+        - amount
+        - transfer_reference
+      properties:
+        employee_id:
+          type: string
+          description: 員工編號
+          example: "EMP001"
+        employee_name:
+          type: string
+          description: 員工姓名
+          example: "王小明"
+        amount:
+          type: integer
+          description: 撥款金額
+          example: 50000
+        transfer_reference:
+          type: string
+          description: 銀行轉帳參考編號
+          example: "TXN202412010001"
+
+    FailedEmployee:
+      type: object
+      required:
+        - employee_id
+        - employee_name
+        - amount
+        - reason
+      properties:
+        employee_id:
+          type: string
+          description: 員工編號
+          example: "EMP003"
+        employee_name:
+          type: string
+          description: 員工姓名
+          example: "張大文"
+        amount:
+          type: integer
+          description: 預計撥款金額
+          example: 55000
+        reason:
+          type: string
+          description: 失敗原因
+          example: "帳號已凍結"
+
+    TimeoutRequest:
+      type: object
+      required:
+        - order_code
+        - customer_id
+        - status
+        - notified_at
+        - message
+        - reserve_cancelled
+      properties:
+        order_code:
+          type: string
+          description: 訂單編號
+          example: "PL20241201EFGH5678"
+        customer_id:
+          type: string
+          description: 商家代碼 (Headquarter UID)
+          example: "CUS-2024-001"
+        status:
+          type: string
+          enum:
+            - timeout
+          description: 狀態 (固定為 timeout)
+          example: "timeout"
+        notified_at:
+          type: string
+          format: date-time
+          description: 通知時間 (ISO 8601 格式)
+          example: "2024-12-01T16:00:00+08:00"
+        message:
+          type: string
+          description: 逾時訊息
+          example: "墊付確認逾時"
+        reserve_cancelled:
+          type: boolean
+          description: |
+            Reserve 是否已成功取消
+            - `true`: ALPHA reserve 已成功取消，額度已釋放
+            - `false`: ALPHA reserve 取消失敗（可能需要人工處理）
+          example: true
+        refunded_amount:
+          type: integer
+          nullable: true
+          description: |
+            退還的額度金額（僅在 reserve_cancelled 為 true 時有值）
+          example: 150000
+
+    WebhookSuccessResponse:
+      type: object
+      required:
+        - success
+      properties:
+        success:
+          type: boolean
+          description: 是否成功接收
+          example: true
+        message:
+          type: string
+          description: 回應訊息
+          example: "Notification received"
+
+    WebhookErrorResponse:
+      type: object
+      required:
+        - success
+        - error_code
+        - error
+      properties:
+        success:
+          type: boolean
+          description: 是否成功（固定為 false）
+          example: false
+        error_code:
+          type: string
+          description: 錯誤代碼
+          enum:
+            - INVALID_REQUEST
+            - UNAUTHORIZED
+            - ORDER_NOT_FOUND
+            - INTERNAL_ERROR
+          example: "INVALID_REQUEST"
+        error:
+          type: string
+          description: 錯誤訊息
+          example: "Missing required field: order_code"
+
+  securitySchemes:
+    SignatureAuth:
+      type: apiKey
+      in: header
+      name: X-Signature
+      description: |
+        HMAC-SHA256 簽章驗證
+
+        簽章計算方式：
+        ```
+        signature = HMAC-SHA256(request_body, shared_secret)
+        ```
+
+        Header 格式：
+        ```
+        X-Signature: sha256=<signature_hex>
+        X-Timestamp: <unix_timestamp>
+        ```
+
+security:
+  - SignatureAuth: []
+
+tags:
+  - name: Webhook
+    description: ddflow 發送給 AIBOU 的 Webhook 通知端點

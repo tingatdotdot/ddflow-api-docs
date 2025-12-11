@@ -1,0 +1,352 @@
+openapi: 3.1.0
+info:
+  title: ddflow ALPHA Webhook API
+  version: 1.0.0
+  description: |
+    ## ddflow Webhook 端點 (接收 ALPHA 通知)
+
+    此文件定義 ddflow 系統提供給 ALPHA 呼叫的 Webhook 端點。
+    當 LINE 確認完成或逾時時，ALPHA 系統會呼叫這些端點通知 ddflow。
+
+    ### Webhook 類型
+    - **確認通知 (Confirmation)**: LINE 推播授權確認完成時發送
+    - **逾時通知 (Timeout)**: LINE 確認逾時時發送
+
+    ### Base URL
+    - Production: `https://ddflow.example.com/api`
+    - Staging: `https://staging.ddflow.example.com/api`
+
+servers:
+  - url: https://ddflow.example.com/api
+    description: ddflow Production Server
+  - url: https://staging.ddflow.example.com/api
+    description: ddflow Staging Server
+
+paths:
+  /webhooks/alpha/confirmation:
+    post:
+      operationId: handleConfirmation
+      summary: LINE 確認通知
+      description: |
+        當 AuthUser 透過 LINE 確認薪資墊付申請後，ALPHA 系統呼叫此端點通知 ddflow。
+
+        ### 觸發時機
+        - 用戶在 LINE 上點擊確認按鈕
+        - LINE 推播授權流程完成
+
+        ### ddflow 處理流程
+        1. 更新 PayrollLoan 狀態為 `confirmed`
+        2. 發送 VAC 付款指示郵件
+        3. 等待 VAC 入款通知
+
+      tags:
+        - ALPHA Webhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfirmationRequest'
+            examples:
+              standard:
+                summary: 標準確認通知
+                value:
+                  order_code: "PL20241201ABCD1234"
+                  customer_id: "CUS-2024-001"
+                  status: "confirmed"
+                  confirmed_at: "2024-12-01T14:30:00+08:00"
+              simulation:
+                summary: 模擬確認（測試用）
+                value:
+                  order_code: "PL20241201ABCD1234"
+                  customer_id: "CUS-2024-001"
+                  status: "confirmed"
+                  confirmed_at: "2024-12-01T14:30:00+08:00"
+                  simulation: true
+      responses:
+        '200':
+          description: 確認通知處理成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+              example:
+                success: true
+                message: "Confirmation processed"
+        '422':
+          description: 請求參數驗證失敗
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+              example:
+                message: "The order_code field is required."
+                errors:
+                  order_code:
+                    - "The order_code field is required."
+        '500':
+          description: 處理失敗
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error: "Processing failed"
+
+  /webhooks/alpha/timeout:
+    post:
+      operationId: handleTimeout
+      summary: LINE 確認逾時通知
+      description: |
+        當 LINE 確認等待逾時時，ALPHA 系統呼叫此端點通知 ddflow。
+
+        ### 觸發時機
+        - LINE 推播授權等待超過設定時間
+        - 用戶未在時限內完成確認
+
+        ### ddflow 處理流程
+        1. 更新 PayrollLoan 狀態為 `timeout`
+        2. 通知 AIBOU 系統逾時
+        3. 可透過 retry 端點重新發起流程
+
+      tags:
+        - ALPHA Webhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TimeoutRequest'
+            example:
+              order_code: "PL20241201EFGH5678"
+              customer_id: "CUS-2024-001"
+              timeout_at: "2024-12-01T15:00:00+08:00"
+      responses:
+        '200':
+          description: 逾時通知處理成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+              example:
+                success: true
+                message: "Timeout processed"
+        '422':
+          description: 請求參數驗證失敗
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+              example:
+                message: "The timeout_at field is required."
+                errors:
+                  timeout_at:
+                    - "The timeout_at field is required."
+        '500':
+          description: 處理失敗
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error: "Processing failed"
+
+  /webhooks/alpha/retry:
+    post:
+      operationId: retryLoan
+      summary: 重試薪資墊付流程
+      description: |
+        對已逾時的訂單重新發起薪資墊付流程。
+
+        ### 使用情境
+        - 訂單狀態為 `timeout` 且未超過最大重試次數
+        - 需要重新發起 LINE 確認流程
+
+        ### 限制
+        - 最大重試次數：3 次
+        - 僅 `timeout` 狀態的訂單可重試
+
+      tags:
+        - ALPHA Webhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RetryRequest'
+            example:
+              order_code: "PL20241201EFGH5678"
+      responses:
+        '200':
+          description: 重試已啟動
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+              example:
+                success: true
+                message: "Retry initiated"
+        '400':
+          description: 無法重試（已達最大次數或狀態不符）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetryErrorResponse'
+              example:
+                success: false
+                error: "Cannot retry this loan"
+                status: "disbursed"
+                retry_count: 3
+        '404':
+          description: 訂單不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error: "Order not found"
+
+components:
+  schemas:
+    ConfirmationRequest:
+      type: object
+      required:
+        - order_code
+        - customer_id
+      properties:
+        order_code:
+          type: string
+          description: 訂單編號
+          example: "PL20241201ABCD1234"
+        customer_id:
+          type: string
+          description: 商家代碼 (Headquarter UID)
+          example: "CUS-2024-001"
+        status:
+          type: string
+          description: 確認狀態
+          enum:
+            - confirmed
+          example: "confirmed"
+        confirmed_at:
+          type: string
+          format: date-time
+          description: 確認時間 (ISO 8601 格式)
+          example: "2024-12-01T14:30:00+08:00"
+        simulation:
+          type: boolean
+          description: 是否為模擬請求（測試用）
+          default: false
+          example: false
+
+    TimeoutRequest:
+      type: object
+      required:
+        - order_code
+        - customer_id
+        - timeout_at
+      properties:
+        order_code:
+          type: string
+          description: 訂單編號
+          example: "PL20241201EFGH5678"
+        customer_id:
+          type: string
+          description: 商家代碼 (Headquarter UID)
+          example: "CUS-2024-001"
+        timeout_at:
+          type: string
+          format: date-time
+          description: 逾時時間 (ISO 8601 格式)
+          example: "2024-12-01T15:00:00+08:00"
+
+    RetryRequest:
+      type: object
+      required:
+        - order_code
+      properties:
+        order_code:
+          type: string
+          description: 訂單編號
+          example: "PL20241201EFGH5678"
+
+    SuccessResponse:
+      type: object
+      required:
+        - success
+        - message
+      properties:
+        success:
+          type: boolean
+          description: 是否成功
+          example: true
+        message:
+          type: string
+          description: 回應訊息
+          example: "Confirmation processed"
+
+    ErrorResponse:
+      type: object
+      required:
+        - success
+        - error
+      properties:
+        success:
+          type: boolean
+          description: 是否成功（固定為 false）
+          example: false
+        error:
+          type: string
+          description: 錯誤訊息
+          example: "Processing failed"
+
+    RetryErrorResponse:
+      type: object
+      required:
+        - success
+        - error
+      properties:
+        success:
+          type: boolean
+          description: 是否成功（固定為 false）
+          example: false
+        error:
+          type: string
+          description: 錯誤訊息
+          example: "Cannot retry this loan"
+        status:
+          type: string
+          description: 目前訂單狀態
+          example: "disbursed"
+        retry_count:
+          type: integer
+          description: 目前重試次數
+          example: 3
+
+    ValidationErrorResponse:
+      type: object
+      required:
+        - message
+        - errors
+      properties:
+        message:
+          type: string
+          description: 驗證錯誤摘要
+          example: "The order_code field is required."
+        errors:
+          type: object
+          description: 各欄位的驗證錯誤
+          additionalProperties:
+            type: array
+            items:
+              type: string
+          example:
+            order_code:
+              - "The order_code field is required."
+
+tags:
+  - name: ALPHA Webhook
+    description: ALPHA 系統呼叫 ddflow 的 Webhook 端點
