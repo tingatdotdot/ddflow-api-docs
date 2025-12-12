@@ -13,13 +13,13 @@ info:
     - **逾時通知 (Timeout)**: LINE 確認逾時時發送
 
     ### Base URL
-    - Production: `https://ddflow.example.com/api`
-    - Staging: `https://staging.ddflow.example.com/api`
+    - Production: `https://platform.ddflow.money/api`
+    - Staging: `https://staging.ddflow.money/api`
 
 servers:
-  - url: https://ddflow.example.com/api
+  - url: https://platform.ddflow.money/api
     description: ddflow Production Server
-  - url: https://staging.ddflow.example.com/api
+  - url: https://staging.ddflow.money/api
     description: ddflow Staging Server
 
 paths:
