@@ -1,0 +1,272 @@
+openapi: 3.1.0
+info:
+  title: Bank Webhook API
+  version: 1.0.0
+  description: |
+    ## Bank Webhook 端點
+
+    此文件定義銀行/ACH 服務呼叫 ddflow 的 Webhook 端點。
+
+    ### Webhook 類型
+    - **VAC 付款通知**: 虛擬帳號收到匯款時發送
+    - **轉帳結果通知**: ACH 批次轉帳完成時發送
+
+    ### Base URL
+    - Production: `https://ddflow.example.com/api`
+    - Staging: `https://staging.ddflow.example.com/api`
+
+servers:
+  - url: https://ddflow.example.com/api
+    description: ddflow Production Server
+  - url: https://staging.ddflow.example.com/api
+    description: ddflow Staging Server
+
+paths:
+  /webhooks/bank/vac-payment:
+    post:
+      operationId: handleVacPayment
+      summary: VAC 付款通知
+      description: |
+        當虛擬帳號 (VAC) 收到匯款時，銀行服務呼叫此端點通知 ddflow。
+
+        ### 觸發時機
+        - 客戶匯款至 VAC 帳號
+        - 銀行確認入帳
+
+        ### ddflow 處理流程
+        1. 驗證訂單存在且狀態為 `confirmed`
+        2. 呼叫 ALPHA API capture（核銷）
+        3. 啟動撥款流程（ACH 轉帳）
+
+      tags:
+        - Bank Webhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VacPaymentRequest'
+            example:
+              order_code: "PL20241201ABCD1234"
+              amount: 150000
+              vac_account: "10554534812448"
+              transaction_id: "TXN202412011234"
+              paid_at: "2024-12-01T15:30:00+08:00"
+      responses:
+        '200':
+          description: 付款通知處理成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+              example:
+                success: true
+                message: "VAC payment processed"
+        '422':
+          description: 請求參數驗證失敗
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+        '500':
+          description: 處理失敗
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error: "Processing failed"
+
+  /webhooks/bank/transfer-result:
+    post:
+      operationId: handleTransferResult
+      summary: ACH 轉帳結果通知
+      description: |
+        當 ACH 批次轉帳完成時，銀行服務呼叫此端點回報轉帳結果。
+
+        ### 觸發時機
+        - ACH 批次處理完成
+        - 每筆轉帳結果確定（成功或失敗）
+
+        ### ddflow 處理流程
+        1. 更新每位員工的轉帳狀態
+        2. 計算成功/失敗筆數
+        3. 更新 PayrollLoan 為已撥款
+        4. 通知 AIBOU 撥款結果
+        5. 若有失敗，發起部分退款
+
+      tags:
+        - Bank Webhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransferResultRequest'
+            examples:
+              all_success:
+                summary: 全部轉帳成功
+                value:
+                  order_code: "PL20241201ABCD1234"
+                  batch_id: "BATCH20241201001"
+                  results:
+                    - employee_id: "EMP001"
+                      success: true
+                      transfer_reference: "TXN202412010001"
+                    - employee_id: "EMP002"
+                      success: true
+                      transfer_reference: "TXN202412010002"
+              partial_failure:
+                summary: 部分轉帳失敗
+                value:
+                  order_code: "PL20241201ABCD1234"
+                  batch_id: "BATCH20241201001"
+                  results:
+                    - employee_id: "EMP001"
+                      success: true
+                      transfer_reference: "TXN202412010001"
+                    - employee_id: "EMP002"
+                      success: false
+                      reason: "帳號已凍結"
+      responses:
+        '200':
+          description: 轉帳結果接收成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+              example:
+                success: true
+                message: "Transfer result queued for processing"
+        '422':
+          description: 請求參數驗證失敗
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+
+components:
+  schemas:
+    VacPaymentRequest:
+      type: object
+      required:
+        - order_code
+        - amount
+        - vac_account
+        - transaction_id
+        - paid_at
+      properties:
+        order_code:
+          type: string
+          description: 訂單編號
+          example: "PL20241201ABCD1234"
+        amount:
+          type: integer
+          description: 付款金額 (TWD)
+          minimum: 1
+          example: 150000
+        vac_account:
+          type: string
+          description: 虛擬帳號
+          example: "10554534812448"
+        transaction_id:
+          type: string
+          description: 銀行交易編號
+          example: "TXN202412011234"
+        paid_at:
+          type: string
+          description: 付款時間 (ISO 8601 格式)
+          example: "2024-12-01T15:30:00+08:00"
+
+    TransferResultRequest:
+      type: object
+      required:
+        - order_code
+        - batch_id
+        - results
+      properties:
+        order_code:
+          type: string
+          description: 訂單編號
+          example: "PL20241201ABCD1234"
+        batch_id:
+          type: string
+          description: ACH 批次編號
+          example: "BATCH20241201001"
+        results:
+          type: array
+          description: 轉帳結果清單
+          items:
+            $ref: '#/components/schemas/TransferResult'
+
+    TransferResult:
+      type: object
+      required:
+        - employee_id
+        - success
+      properties:
+        employee_id:
+          type: string
+          description: 員工編號
+          example: "EMP001"
+        success:
+          type: boolean
+          description: 是否轉帳成功
+          example: true
+        transfer_reference:
+          type: string
+          nullable: true
+          description: 銀行轉帳參考編號（成功時提供）
+          example: "TXN202412010001"
+        reason:
+          type: string
+          nullable: true
+          description: 失敗原因（失敗時提供）
+          example: "帳號已凍結"
+
+    SuccessResponse:
+      type: object
+      required:
+        - success
+        - message
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "VAC payment processed"
+
+    ErrorResponse:
+      type: object
+      required:
+        - success
+        - error
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+          example: "Processing failed"
+
+    ValidationErrorResponse:
+      type: object
+      required:
+        - message
+        - errors
+      properties:
+        message:
+          type: string
+          example: "The order_code field is required."
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+
+tags:
+  - name: Bank Webhook
+    description: 銀行/ACH 服務呼叫 ddflow 的 Webhook 端點

@@ -1,0 +1,292 @@
+openapi: 3.1.0
+info:
+  title: VAC Webhook API
+  version: 1.0.0
+  description: |
+    ## VAC 付款通知 Webhook
+
+    此文件定義 VAC 服務 (tpg-rc.qrpay.tw) 呼叫 ddflow 的 Webhook 端點。
+
+    ### 通知類型
+    - **付款通知**: 虛擬帳號收到付款時發送
+
+    ### Base URL
+    - Production: `https://ddflow.example.com/api`
+    - Staging: `https://staging.ddflow.example.com/api`
+
+servers:
+  - url: https://ddflow.example.com/api
+    description: ddflow Production Server
+  - url: https://staging.ddflow.example.com/api
+    description: ddflow Staging Server
+
+paths:
+  /webhooks/vac/payment:
+    post:
+      operationId: handlePaymentNotification
+      summary: VAC 付款通知
+      description: |
+        當虛擬帳號收到付款時，VAC 服務呼叫此端點通知 ddflow。
+
+        ### 觸發時機
+        - 客戶透過 ATM 或網銀匯款至 VAC
+        - 銀行確認入帳後，VAC 服務發送通知
+
+        ### ddflow 處理流程
+        1. 驗證 orderType 為 `PAYROLL_LOAN`
+        2. 驗證 status 為 `paid`
+        3. 呼叫 PayrollLoanService 處理付款
+        4. 觸發 ALPHA capture 和撥款流程
+
+        ### 注意事項
+        - 僅處理 `orderType: PAYROLL_LOAN` 的通知
+        - 僅處理 `status: paid` 的通知
+        - 其他類型/狀態會回傳成功但不處理
+
+      tags:
+        - VAC Webhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VacPaymentNotification'
+            examples:
+              paid:
+                summary: 付款成功
+                value:
+                  vac: "10554534812448"
+                  orderNo: "PL20241201ABCD1234"
+                  orderType: "PAYROLL_LOAN"
+                  orderDescription: "薪資墊付款項"
+                  txRecord: "{\"BRH_COD\":\"00715\",\"COMPA_COD\":\"10554\",\"ACT_DATE\":\"20251202\",\"TX_SRL\":\"00569619\",\"SRC_TYPE\":\"N\",\"TX_AMT\":150000,\"NOTE_CNT\":\"001\",\"TRX_NO\":\"10554534812448\",\"CANCEL_FLG\":\"0\",\"LST_TX_DATE\":\"20251201\",\"TX_TIME\":\"153042\",\"OUT_BANK\":\"012\",\"OUT_ACNO\":\"000073316827****\"}"
+                  paidAt: "2024-12-01 15:30:42"
+                  amount: 150000
+                  status: "paid"
+              failed:
+                summary: 付款失敗
+                value:
+                  vac: "10554534812448"
+                  orderNo: "PL20241201ABCD1234"
+                  orderType: "PAYROLL_LOAN"
+                  orderDescription: "薪資墊付款項"
+                  txRecord: null
+                  paidAt: "2024-12-01 15:30:42"
+                  amount: 150000
+                  status: "failed"
+              expired:
+                summary: 虛擬帳號過期
+                value:
+                  vac: "10554534812448"
+                  orderNo: "PL20241201ABCD1234"
+                  orderType: "PAYROLL_LOAN"
+                  orderDescription: "薪資墊付款項"
+                  txRecord: null
+                  paidAt: null
+                  amount: 150000
+                  status: "expired"
+      responses:
+        '200':
+          description: 通知接收成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+              examples:
+                processed:
+                  summary: 付款已處理
+                  value:
+                    success: true
+                    message: "Payment processed"
+                received:
+                  summary: 通知已接收（非 PAYROLL_LOAN 或非 paid 狀態）
+                  value:
+                    success: true
+                    message: "Notification received"
+        '422':
+          description: 請求參數驗證失敗
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+              example:
+                message: "The vac field is required."
+                errors:
+                  vac:
+                    - "The vac field is required."
+        '500':
+          description: 處理失敗
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error: "Processing failed: Order not found"
+
+components:
+  schemas:
+    VacPaymentNotification:
+      type: object
+      required:
+        - vac
+        - orderNo
+        - orderType
+        - paidAt
+        - amount
+        - status
+      properties:
+        vac:
+          type: string
+          description: 虛擬帳號 (14 碼)
+          example: "10554534812448"
+        orderNo:
+          type: string
+          description: 訂單編號（對應 PayrollLoan.order_code）
+          example: "PL20241201ABCD1234"
+        orderType:
+          type: string
+          description: |
+            訂單類型
+            - `PAYROLL_LOAN`: 薪資墊付（會處理）
+            - 其他類型: 不處理
+          example: "PAYROLL_LOAN"
+        orderDescription:
+          type: string
+          nullable: true
+          description: 訂單說明
+          example: "薪資墊付款項"
+        txRecord:
+          type: string
+          nullable: true
+          description: |
+            銀行交易紀錄 (JSON 字串)
+            包含銀行端的詳細交易資訊
+          example: "{\"BRH_COD\":\"00715\",\"TX_AMT\":150000,...}"
+        paidAt:
+          type: string
+          nullable: true
+          description: |
+            付款時間
+            格式: `YYYY-MM-DD HH:mm:ss`
+          example: "2024-12-01 15:30:42"
+        amount:
+          type: integer
+          description: 付款金額 (TWD)
+          minimum: 1
+          example: 150000
+        status:
+          type: string
+          description: |
+            付款狀態
+            - `paid`: 付款成功（會處理）
+            - `failed`: 付款失敗（不處理）
+            - `expired`: 虛擬帳號過期（不處理）
+          enum:
+            - paid
+            - failed
+            - expired
+          example: "paid"
+
+    TxRecord:
+      type: object
+      description: 銀行交易紀錄（txRecord 解析後的結構）
+      properties:
+        BRH_COD:
+          type: string
+          description: 分行代碼
+          example: "00715"
+        COMPA_COD:
+          type: string
+          description: 公司代碼
+          example: "10554"
+        ACT_DATE:
+          type: string
+          description: 入帳日期 (YYYYMMDD)
+          example: "20251202"
+        TX_SRL:
+          type: string
+          description: 交易序號
+          example: "00569619"
+        SRC_TYPE:
+          type: string
+          description: 來源類型
+          example: "N"
+        TX_AMT:
+          type: integer
+          description: 交易金額
+          example: 150000
+        NOTE_CNT:
+          type: string
+          description: 備註數量
+          example: "001"
+        TRX_NO:
+          type: string
+          description: 交易編號（同 VAC）
+          example: "10554534812448"
+        CANCEL_FLG:
+          type: string
+          description: 取消標記 (0=未取消)
+          example: "0"
+        LST_TX_DATE:
+          type: string
+          description: 最後交易日期 (YYYYMMDD)
+          example: "20251201"
+        TX_TIME:
+          type: string
+          description: 交易時間 (HHMMSS)
+          example: "153042"
+        OUT_BANK:
+          type: string
+          description: 匯出銀行代碼
+          example: "012"
+        OUT_ACNO:
+          type: string
+          description: 匯出帳號（部分遮罩）
+          example: "000073316827****"
+
+    SuccessResponse:
+      type: object
+      required:
+        - success
+        - message
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Payment processed"
+
+    ErrorResponse:
+      type: object
+      required:
+        - success
+        - error
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+          example: "Processing failed: Order not found"
+
+    ValidationErrorResponse:
+      type: object
+      required:
+        - message
+        - errors
+      properties:
+        message:
+          type: string
+          example: "The vac field is required."
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+
+tags:
+  - name: VAC Webhook
+    description: VAC 服務 (tpg-rc.qrpay.tw) 呼叫 ddflow 的付款通知端點
