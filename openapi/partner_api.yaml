@@ -1,0 +1,748 @@
+openapi: 3.1.0
+info:
+  title: ddflow Partner API
+  version: 1.0.0
+  description: |
+    ## Partner API 文件
+
+    此 API 提供給第三方合作夥伴查詢薪資墊付相關資訊。
+
+    ### 認證方式
+
+    使用 OAuth2 Client Credentials 流程進行認證：
+
+    ```bash
+    curl -X POST https://platform.ddflow.money/oauth/token \
+      -d "grant_type=client_credentials" \
+      -d "client_id=YOUR_CLIENT_ID" \
+      -d "client_secret=YOUR_CLIENT_SECRET" \
+      -d "scope=quota-read order-read"
+    ```
+
+    取得 Access Token 後，在 API 請求的 Header 中加入：
+    ```
+    Authorization: Bearer {access_token}
+    ```
+
+    ### Scopes
+    - `quota-read`: 查詢 ALPHA 額度
+    - `order-read`: 查詢訂單狀態、歷程、列表
+
+    ### Base URL
+    - Production: `https://platform.ddflow.money/api`
+    - Staging: `https://staging.ddflow.money/api`
+
+servers:
+  - url: https://platform.ddflow.money/api
+    description: Production Server
+  - url: https://staging.ddflow.money/api
+    description: Staging Server
+
+security:
+  - bearerAuth: []
+
+paths:
+  /partner/quota:
+    post:
+      operationId: getQuota
+      summary: 查詢 ALPHA 額度
+      description: |
+        查詢指定客戶在 ALPHA 系統中的額度狀態。
+
+        ### 回傳資訊
+        - 核准額度 (approved_quota)
+        - 已核銷金額 (captured_amount)
+        - 可用額度 (remaining_amount)
+        - 圈存中金額 (reserved_amount)
+
+      tags:
+        - Quota
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuotaRequest'
+            example:
+              customer_id: "CUS-2024-001"
+      responses:
+        '200':
+          description: 查詢成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuotaResponse'
+              example:
+                success: true
+                data:
+                  approved_quota: 5000000
+                  captured_amount: 1500000
+                  remaining_amount: 3000000
+                  reserved_amount: 500000
+                  status: "activated"
+        '400':
+          description: ALPHA API 錯誤
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error_code: "ALPHA_ERROR"
+                error: "Customer not found"
+        '401':
+          description: 認證失敗
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnauthorizedResponse'
+        '500':
+          description: 內部錯誤
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalErrorResponse'
+
+  /partner/orders:
+    post:
+      operationId: getOrdersByCustomer
+      summary: 查詢客戶訂單列表
+      description: |
+        以客戶 ID 查詢訂單列表，支援日期範圍與狀態篩選。
+
+        ### 篩選條件
+        - `status`: 篩選特定狀態的訂單
+        - `date_from` / `date_to`: 篩選日期範圍（依建立時間）
+
+        ### 分頁
+        - `page`: 頁碼（預設 1）
+        - `per_page`: 每頁筆數（預設 15，最大 100）
+
+      tags:
+        - Orders
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrdersRequest'
+            examples:
+              basic:
+                summary: 基本查詢
+                value:
+                  customer_id: "CUS-2024-001"
+              with_filters:
+                summary: 含篩選條件
+                value:
+                  customer_id: "CUS-2024-001"
+                  status: "disbursed"
+                  date_from: "2024-12-01"
+                  date_to: "2024-12-31"
+                  page: 1
+                  per_page: 15
+      responses:
+        '200':
+          description: 查詢成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrdersResponse'
+              example:
+                success: true
+                data:
+                  customer_id: "CUS-2024-001"
+                  orders:
+                    - order_code: "PL20241215ABCD1234"
+                      status: "disbursed"
+                      total_amount: 150000
+                      disbursed_amount: 150000
+                      employee_count: 5
+                      vac_account: "10554534812449"
+                      created_at: "2024-12-15T10:00:00+08:00"
+                      updated_at: "2024-12-15T14:00:00+08:00"
+                    - order_code: "PL20241213EFGH5678"
+                      status: "disbursed"
+                      total_amount: 100000
+                      disbursed_amount: 80000
+                      employee_count: 3
+                      vac_account: "10554534812448"
+                      created_at: "2024-12-13T10:00:00+08:00"
+                      updated_at: "2024-12-13T12:00:00+08:00"
+                  pagination:
+                    current_page: 1
+                    per_page: 15
+                    total: 2
+                    last_page: 1
+        '401':
+          description: 認證失敗
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnauthorizedResponse'
+        '422':
+          description: 參數驗證失敗
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+
+  /partner/order/status:
+    post:
+      operationId: getOrderStatus
+      summary: 查詢訂單狀態
+      description: |
+        查詢指定訂單的詳細狀態，包含所有員工的匯款狀態。
+
+        ### 回傳資訊
+        - 訂單基本資訊（編號、金額、狀態等）
+        - 員工列表及各員工的匯款狀態
+
+      tags:
+        - Orders
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderStatusRequest'
+            example:
+              order_code: "PL20241213ABCD1234"
+      responses:
+        '200':
+          description: 查詢成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderStatusResponse'
+              example:
+                success: true
+                data:
+                  order_code: "PL20241213ABCD1234"
+                  customer_id: "CUS-2024-001"
+                  status: "disbursed"
+                  total_amount: 100000
+                  disbursed_amount: 80000
+                  employee_count: 3
+                  vac_account: "10554534812448"
+                  created_at: "2024-12-13T10:00:00+08:00"
+                  updated_at: "2024-12-13T12:00:00+08:00"
+                  employees:
+                    - employee_id: "E001"
+                      employee_name: "王小明"
+                      amount: 50000
+                      status: "success"
+                      transfer_reference: "ACH20241213001"
+                      failure_reason: null
+                      transferred_at: "2024-12-13T11:30:00+08:00"
+                    - employee_id: "E002"
+                      employee_name: "李小華"
+                      amount: 30000
+                      status: "success"
+                      transfer_reference: "ACH20241213002"
+                      failure_reason: null
+                      transferred_at: "2024-12-13T11:30:00+08:00"
+                    - employee_id: "E003"
+                      employee_name: "張小美"
+                      amount: 20000
+                      status: "failed"
+                      transfer_reference: null
+                      failure_reason: "帳號錯誤"
+                      transferred_at: null
+        '401':
+          description: 認證失敗
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnauthorizedResponse'
+        '404':
+          description: 訂單不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotFoundResponse'
+              example:
+                success: false
+                error_code: "ORDER_NOT_FOUND"
+                error: "Order not found"
+
+  /partner/order/timeline:
+    post:
+      operationId: getOrderTimeline
+      summary: 查詢訂單處理歷程
+      description: |
+        查詢指定訂單的處理歷程時間軸。
+
+        ### 回傳資訊
+        - 訂單各階段的處理時間點
+        - 狀態變更記錄
+        - API 呼叫記錄
+
+      tags:
+        - Orders
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderTimelineRequest'
+            example:
+              order_code: "PL20241213ABCD1234"
+      responses:
+        '200':
+          description: 查詢成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderTimelineResponse'
+              example:
+                success: true
+                data:
+                  order_code: "PL20241213ABCD1234"
+                  customer_id: "CUS-2024-001"
+                  current_status: "disbursed"
+                  timeline:
+                    - timestamp: "2024-12-13T10:00:00+08:00"
+                      event: "訂單建立"
+                      status: "pending"
+                      details:
+                        customer_id: "CUS-2024-001"
+                        total_amount: 100000
+                        employee_count: 3
+                    - timestamp: "2024-12-13T10:05:00+08:00"
+                      event: "額度預留"
+                      status: "awaiting_confirmation"
+                      details:
+                        api_endpoint: "/reserve"
+                        response_code: "0000"
+                    - timestamp: "2024-12-13T10:30:00+08:00"
+                      event: "用戶確認"
+                      status: "confirmed"
+                      details: {}
+                    - timestamp: "2024-12-13T11:00:00+08:00"
+                      event: "VAC 入款"
+                      status: "captured"
+                      details:
+                        amount: 100000
+                        vac_account: "10554534812448"
+                    - timestamp: "2024-12-13T12:00:00+08:00"
+                      event: "撥款完成"
+                      status: "disbursed"
+                      details:
+                        total_disbursed: 80000
+                        failed_count: 1
+        '401':
+          description: 認證失敗
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnauthorizedResponse'
+        '404':
+          description: 訂單不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotFoundResponse'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        使用 OAuth2 Client Credentials 取得的 Access Token。
+
+        ```bash
+        curl -X POST https://platform.ddflow.money/oauth/token \
+          -d "grant_type=client_credentials" \
+          -d "client_id=YOUR_CLIENT_ID" \
+          -d "client_secret=YOUR_CLIENT_SECRET" \
+          -d "scope=quota-read order-read"
+        ```
+
+  schemas:
+    # Request Schemas
+    QuotaRequest:
+      type: object
+      required:
+        - customer_id
+      properties:
+        customer_id:
+          type: string
+          description: 客戶 ID (商家代碼)
+          example: "CUS-2024-001"
+
+    OrdersRequest:
+      type: object
+      required:
+        - customer_id
+      properties:
+        customer_id:
+          type: string
+          description: 客戶 ID (商家代碼)
+          example: "CUS-2024-001"
+        status:
+          type: string
+          description: 篩選狀態
+          enum:
+            - pending
+            - awaiting_confirmation
+            - confirmed
+            - disbursing
+            - disbursed
+            - partially_disbursed
+            - timeout
+            - failed
+          example: "disbursed"
+        date_from:
+          type: string
+          format: date
+          description: 起始日期 (YYYY-MM-DD)
+          example: "2024-12-01"
+        date_to:
+          type: string
+          format: date
+          description: 結束日期 (YYYY-MM-DD)
+          example: "2024-12-31"
+        page:
+          type: integer
+          minimum: 1
+          default: 1
+          description: 頁碼
+          example: 1
+        per_page:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 15
+          description: 每頁筆數
+          example: 15
+
+    OrderStatusRequest:
+      type: object
+      required:
+        - order_code
+      properties:
+        order_code:
+          type: string
+          description: 訂單編號
+          example: "PL20241213ABCD1234"
+
+    OrderTimelineRequest:
+      type: object
+      required:
+        - order_code
+      properties:
+        order_code:
+          type: string
+          description: 訂單編號
+          example: "PL20241213ABCD1234"
+
+    # Response Schemas
+    QuotaResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            approved_quota:
+              type: integer
+              description: 核准額度
+              example: 5000000
+            captured_amount:
+              type: integer
+              description: 已核銷金額
+              example: 1500000
+            remaining_amount:
+              type: integer
+              description: 可用額度
+              example: 3000000
+            reserved_amount:
+              type: integer
+              description: 圈存中金額
+              example: 500000
+            status:
+              type: string
+              description: 帳戶狀態
+              example: "activated"
+
+    OrdersResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            customer_id:
+              type: string
+              example: "CUS-2024-001"
+            orders:
+              type: array
+              items:
+                $ref: '#/components/schemas/OrderSummary'
+            pagination:
+              $ref: '#/components/schemas/Pagination'
+
+    OrderSummary:
+      type: object
+      properties:
+        order_code:
+          type: string
+          description: 訂單編號
+          example: "PL20241213ABCD1234"
+        status:
+          type: string
+          description: 訂單狀態
+          example: "disbursed"
+        total_amount:
+          type: integer
+          description: 總金額
+          example: 100000
+        disbursed_amount:
+          type: integer
+          description: 已撥款金額
+          example: 80000
+        employee_count:
+          type: integer
+          description: 員工數量
+          example: 3
+        vac_account:
+          type: string
+          description: VAC 虛擬帳號
+          example: "10554534812448"
+        created_at:
+          type: string
+          format: date-time
+          description: 建立時間
+          example: "2024-12-13T10:00:00+08:00"
+        updated_at:
+          type: string
+          format: date-time
+          description: 更新時間
+          example: "2024-12-13T12:00:00+08:00"
+
+    Pagination:
+      type: object
+      properties:
+        current_page:
+          type: integer
+          example: 1
+        per_page:
+          type: integer
+          example: 15
+        total:
+          type: integer
+          example: 50
+        last_page:
+          type: integer
+          example: 4
+
+    OrderStatusResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            order_code:
+              type: string
+              example: "PL20241213ABCD1234"
+            customer_id:
+              type: string
+              example: "CUS-2024-001"
+            status:
+              type: string
+              example: "disbursed"
+            total_amount:
+              type: integer
+              example: 100000
+            disbursed_amount:
+              type: integer
+              example: 80000
+            employee_count:
+              type: integer
+              example: 3
+            vac_account:
+              type: string
+              example: "10554534812448"
+            created_at:
+              type: string
+              format: date-time
+              example: "2024-12-13T10:00:00+08:00"
+            updated_at:
+              type: string
+              format: date-time
+              example: "2024-12-13T12:00:00+08:00"
+            employees:
+              type: array
+              items:
+                $ref: '#/components/schemas/EmployeeTransferStatus'
+
+    EmployeeTransferStatus:
+      type: object
+      properties:
+        employee_id:
+          type: string
+          description: 員工 ID
+          example: "E001"
+        employee_name:
+          type: string
+          description: 員工姓名
+          example: "王小明"
+        amount:
+          type: integer
+          description: 匯款金額
+          example: 50000
+        status:
+          type: string
+          description: 匯款狀態
+          enum:
+            - pending
+            - processing
+            - success
+            - failed
+          example: "success"
+        transfer_reference:
+          type: string
+          nullable: true
+          description: 匯款參考編號
+          example: "ACH20241213001"
+        failure_reason:
+          type: string
+          nullable: true
+          description: 失敗原因
+          example: null
+        transferred_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: 匯款完成時間
+          example: "2024-12-13T11:30:00+08:00"
+
+    OrderTimelineResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            order_code:
+              type: string
+              example: "PL20241213ABCD1234"
+            customer_id:
+              type: string
+              example: "CUS-2024-001"
+            current_status:
+              type: string
+              example: "disbursed"
+            timeline:
+              type: array
+              items:
+                $ref: '#/components/schemas/TimelineEvent'
+
+    TimelineEvent:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          description: 事件時間
+          example: "2024-12-13T10:00:00+08:00"
+        event:
+          type: string
+          description: 事件名稱
+          example: "訂單建立"
+        status:
+          type: string
+          description: 當時狀態
+          example: "pending"
+        details:
+          type: object
+          description: 事件詳細資訊
+          additionalProperties: true
+
+    # Error Schemas
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error_code:
+          type: string
+          example: "ALPHA_ERROR"
+        error:
+          type: string
+          example: "Customer not found"
+
+    NotFoundResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error_code:
+          type: string
+          example: "ORDER_NOT_FOUND"
+        error:
+          type: string
+          example: "Order not found"
+
+    UnauthorizedResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: "Unauthenticated."
+
+    InternalErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error_code:
+          type: string
+          example: "INTERNAL_ERROR"
+        error:
+          type: string
+          example: "An unexpected error occurred"
+
+    ValidationErrorResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: "The customer_id field is required."
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+          example:
+            customer_id:
+              - "The customer_id field is required."
+
+tags:
+  - name: Quota
+    description: ALPHA 額度查詢
+  - name: Orders
+    description: 訂單查詢相關端點
