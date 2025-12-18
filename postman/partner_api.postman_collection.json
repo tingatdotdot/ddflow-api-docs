@@ -1,0 +1,368 @@
+{
+  "info": {
+    "_postman_id": "partner-api-collection",
+    "name": "ddflow Partner API",
+    "description": "Partner API 提供給第三方合作夥伴查詢薪資墊付相關資訊。\n\n## 認證方式\n\n使用 OAuth2 Client Credentials 流程進行認證。\n\n### Scopes\n- `quota-read`: 查詢 ALPHA 額度\n- `order-read`: 查詢訂單狀態、歷程、列表",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{access_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://platform.ddflow.money",
+      "type": "string"
+    },
+    {
+      "key": "client_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "client_secret",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "access_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "customer_id",
+      "value": "CUS-2024-001",
+      "type": "string"
+    },
+    {
+      "key": "order_code",
+      "value": "PL20241213ABCD1234",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Get Access Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.access_token) {",
+                  "    pm.collectionVariables.set('access_token', jsonData.access_token);",
+                  "    console.log('Access token saved to collection variables');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"grant_type\": \"client_credentials\",\n  \"client_id\": \"{{client_id}}\",\n  \"client_secret\": \"{{client_secret}}\",\n  \"scope\": \"quota-read order-read\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/oauth/token",
+              "host": ["{{base_url}}"],
+              "path": ["oauth", "token"]
+            },
+            "description": "取得 OAuth2 Access Token。\n\n請先在 Collection Variables 中設定 `client_id` 和 `client_secret`。\n\n成功後會自動將 `access_token` 儲存到 Collection Variables。"
+          },
+          "response": [
+            {
+              "name": "Success",
+              "originalRequest": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"grant_type\": \"client_credentials\",\n  \"client_id\": \"{{client_id}}\",\n  \"client_secret\": \"{{client_secret}}\",\n  \"scope\": \"quota-read order-read\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/oauth/token",
+                  "host": ["{{base_url}}"],
+                  "path": ["oauth", "token"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"token_type\": \"Bearer\",\n  \"expires_in\": 31536000,\n  \"access_token\": \"eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9...\"\n}"
+            }
+          ]
+        }
+      ],
+      "description": "OAuth2 認證相關端點"
+    },
+    {
+      "name": "Quota",
+      "item": [
+        {
+          "name": "Query Quota",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer_id\": \"{{customer_id}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/partner/quota",
+              "host": ["{{base_url}}"],
+              "path": ["api", "partner", "quota"]
+            },
+            "description": "查詢指定客戶在 ALPHA 系統中的額度狀態。\n\n**Scope 需求**: `quota-read`\n\n### 回傳資訊\n- 核准額度 (approved_quota)\n- 已核銷金額 (captured_amount)\n- 可用額度 (remaining_amount)\n- 圈存中金額 (reserved_amount)"
+          },
+          "response": [
+            {
+              "name": "Success",
+              "originalRequest": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"customer_id\": \"CUS-2024-001\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/partner/quota",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "partner", "quota"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"approved_quota\": 5000000,\n    \"captured_amount\": 1500000,\n    \"remaining_amount\": 3000000,\n    \"reserved_amount\": 500000,\n    \"status\": \"activated\"\n  }\n}"
+            }
+          ]
+        }
+      ],
+      "description": "ALPHA 額度查詢"
+    },
+    {
+      "name": "Orders",
+      "item": [
+        {
+          "name": "List Orders by Customer",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer_id\": \"{{customer_id}}\",\n  \"status\": \"\",\n  \"date_from\": \"\",\n  \"date_to\": \"\",\n  \"page\": 1,\n  \"per_page\": 15\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/partner/orders",
+              "host": ["{{base_url}}"],
+              "path": ["api", "partner", "orders"]
+            },
+            "description": "以客戶 ID 查詢訂單列表，支援日期範圍與狀態篩選。\n\n**Scope 需求**: `order-read`\n\n### 篩選條件\n- `status`: 篩選特定狀態的訂單 (pending, awaiting_confirmation, confirmed, disbursed, partially_disbursed, timeout, failed)\n- `date_from` / `date_to`: 篩選日期範圍（依建立時間，格式 YYYY-MM-DD）\n\n### 分頁\n- `page`: 頁碼（預設 1）\n- `per_page`: 每頁筆數（預設 15，最大 100）"
+          },
+          "response": [
+            {
+              "name": "Success",
+              "originalRequest": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"customer_id\": \"CUS-2024-001\",\n  \"status\": \"disbursed\",\n  \"date_from\": \"2024-12-01\",\n  \"date_to\": \"2024-12-31\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/partner/orders",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "partner", "orders"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"customer_id\": \"CUS-2024-001\",\n    \"orders\": [\n      {\n        \"order_code\": \"PL20241215ABCD1234\",\n        \"status\": \"disbursed\",\n        \"total_amount\": 150000,\n        \"disbursed_amount\": 150000,\n        \"employee_count\": 5,\n        \"vac_account\": \"10554534812449\",\n        \"created_at\": \"2024-12-15T10:00:00+08:00\",\n        \"updated_at\": \"2024-12-15T14:00:00+08:00\"\n      }\n    ],\n    \"pagination\": {\n      \"current_page\": 1,\n      \"per_page\": 15,\n      \"total\": 1,\n      \"last_page\": 1\n    }\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Order Status",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"order_code\": \"{{order_code}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/partner/order/status",
+              "host": ["{{base_url}}"],
+              "path": ["api", "partner", "order", "status"]
+            },
+            "description": "查詢指定訂單的詳細狀態，包含所有員工的匯款狀態。\n\n**Scope 需求**: `order-read`\n\n### 回傳資訊\n- 訂單基本資訊（編號、金額、狀態等）\n- 員工列表及各員工的匯款狀態\n\n### 員工匯款狀態\n- `pending`: 等待處理\n- `processing`: 處理中\n- `success`: 匯款成功\n- `failed`: 匯款失敗"
+          },
+          "response": [
+            {
+              "name": "Success",
+              "originalRequest": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"order_code\": \"PL20241213ABCD1234\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/partner/order/status",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "partner", "order", "status"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"order_code\": \"PL20241213ABCD1234\",\n    \"customer_id\": \"CUS-2024-001\",\n    \"status\": \"disbursed\",\n    \"total_amount\": 100000,\n    \"disbursed_amount\": 80000,\n    \"employee_count\": 3,\n    \"vac_account\": \"10554534812448\",\n    \"created_at\": \"2024-12-13T10:00:00+08:00\",\n    \"updated_at\": \"2024-12-13T12:00:00+08:00\",\n    \"employees\": [\n      {\n        \"employee_id\": \"E001\",\n        \"employee_name\": \"王小明\",\n        \"amount\": 50000,\n        \"status\": \"success\",\n        \"transfer_reference\": \"ACH20241213001\",\n        \"failure_reason\": null,\n        \"transferred_at\": \"2024-12-13T11:30:00+08:00\"\n      },\n      {\n        \"employee_id\": \"E002\",\n        \"employee_name\": \"李小華\",\n        \"amount\": 30000,\n        \"status\": \"success\",\n        \"transfer_reference\": \"ACH20241213002\",\n        \"failure_reason\": null,\n        \"transferred_at\": \"2024-12-13T11:30:00+08:00\"\n      },\n      {\n        \"employee_id\": \"E003\",\n        \"employee_name\": \"張小美\",\n        \"amount\": 20000,\n        \"status\": \"failed\",\n        \"transfer_reference\": null,\n        \"failure_reason\": \"帳號錯誤\",\n        \"transferred_at\": null\n      }\n    ]\n  }\n}"
+            },
+            {
+              "name": "Order Not Found",
+              "originalRequest": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"order_code\": \"INVALID_ORDER\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/partner/order/status",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "partner", "order", "status"]
+                }
+              },
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": false,\n  \"error_code\": \"ORDER_NOT_FOUND\",\n  \"error\": \"Order not found\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Order Timeline",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"order_code\": \"{{order_code}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/partner/order/timeline",
+              "host": ["{{base_url}}"],
+              "path": ["api", "partner", "order", "timeline"]
+            },
+            "description": "查詢指定訂單的處理歷程時間軸。\n\n**Scope 需求**: `order-read`\n\n### 回傳資訊\n- 訂單各階段的處理時間點\n- 狀態變更記錄\n- API 呼叫記錄"
+          },
+          "response": [
+            {
+              "name": "Success",
+              "originalRequest": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"order_code\": \"PL20241213ABCD1234\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/partner/order/timeline",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "partner", "order", "timeline"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"order_code\": \"PL20241213ABCD1234\",\n    \"customer_id\": \"CUS-2024-001\",\n    \"current_status\": \"disbursed\",\n    \"timeline\": [\n      {\n        \"timestamp\": \"2024-12-13T10:00:00+08:00\",\n        \"event\": \"訂單建立\",\n        \"status\": \"pending\",\n        \"details\": {\n          \"customer_id\": \"CUS-2024-001\",\n          \"total_amount\": 100000,\n          \"employee_count\": 3\n        }\n      },\n      {\n        \"timestamp\": \"2024-12-13T10:05:00+08:00\",\n        \"event\": \"額度預留\",\n        \"status\": \"awaiting_confirmation\",\n        \"details\": {\n          \"api_endpoint\": \"/reserve\",\n          \"response_code\": \"0000\"\n        }\n      },\n      {\n        \"timestamp\": \"2024-12-13T10:30:00+08:00\",\n        \"event\": \"用戶確認\",\n        \"status\": \"confirmed\",\n        \"details\": {}\n      },\n      {\n        \"timestamp\": \"2024-12-13T11:00:00+08:00\",\n        \"event\": \"VAC 入款\",\n        \"status\": \"captured\",\n        \"details\": {\n          \"amount\": 100000,\n          \"vac_account\": \"10554534812448\"\n        }\n      },\n      {\n        \"timestamp\": \"2024-12-13T12:00:00+08:00\",\n        \"event\": \"撥款完成\",\n        \"status\": \"disbursed\",\n        \"details\": {\n          \"total_disbursed\": 80000,\n          \"failed_count\": 1\n        }\n      }\n    ]\n  }\n}"
+            }
+          ]
+        }
+      ],
+      "description": "訂單查詢相關端點"
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          ""
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          ""
+        ]
+      }
+    }
+  ]
+}

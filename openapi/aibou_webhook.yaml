@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: AIBOU Webhook API
-  version: 1.0.0
+  version: 1.1.0
   description: |
     ## AIBOU Webhook 接收端點
 
@@ -10,6 +10,15 @@ info:
     ### 通知類型
     - **撥款完成通知 (Disbursement Complete)**: 當薪資墊付撥款作業完成時發送
     - **逾時通知 (Timeout)**: 當 LINE 確認逾時時發送
+    - **員工轉帳通知**: 單一員工撥款成功/失敗時發送
+
+    ### Event Types
+    所有 Webhook 請求都包含 `event_type` 欄位，可能的值包含：
+    - `order.timeout` - 訂單確認逾時
+    - `disbursement.complete` - 撥款完成
+    - `disbursement.failed` - 撥款失敗
+    - `employee.transfer.complete` - 員工轉帳成功
+    - `employee.transfer.failed` - 員工轉帳失敗
 
     ### 認證方式
     所有 Webhook 請求將包含簽章驗證（待確認實作方式）
@@ -172,6 +181,7 @@ paths:
               with_reserve_cancelled:
                 summary: Reserve 已取消
                 value:
+                  event_type: "order.timeout"
                   order_code: "PL20241201EFGH5678"
                   customer_id: "CUS-2024-001"
                   status: "timeout"
@@ -182,6 +192,7 @@ paths:
               without_reserve_cancelled:
                 summary: Reserve 取消失敗
                 value:
+                  event_type: "order.timeout"
                   order_code: "PL20241201EFGH5678"
                   customer_id: "CUS-2024-001"
                   status: "timeout"
@@ -346,6 +357,7 @@ components:
     TimeoutRequest:
       type: object
       required:
+        - event_type
         - order_code
         - customer_id
         - status
@@ -353,6 +365,13 @@ components:
         - message
         - reserve_cancelled
       properties:
+        event_type:
+          type: string
+          description: |
+            事件類型，用於識別 Webhook 通知種類
+          enum:
+            - order.timeout
+          example: "order.timeout"
         order_code:
           type: string
           description: 訂單編號
@@ -365,7 +384,7 @@ components:
           type: string
           enum:
             - timeout
-          description: 狀態 (固定為 timeout)
+          description: 訂單狀態 (固定為 timeout)
           example: "timeout"
         notified_at:
           type: string

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: ddflow ALPHA Webhook API
-  version: 1.0.0
+  version: 1.1.0
   description: |
     ## ddflow Webhook 端點 (接收 ALPHA 通知)
 
@@ -11,6 +11,11 @@ info:
     ### Webhook 類型
     - **確認通知 (Confirmation)**: LINE 推播授權確認完成時發送
     - **逾時通知 (Timeout)**: LINE 確認逾時時發送
+
+    ### Event Types
+    建議 Webhook 請求包含 `event_type` 欄位以便識別事件類型：
+    - `order.confirmed` - 訂單已確認
+    - `order.timeout` - 訂單確認逾時
 
     ### Base URL
     - Production: `https://platform.ddflow.money/api`
@@ -51,6 +56,7 @@ paths:
               standard:
                 summary: 標準確認通知
                 value:
+                  event_type: "order.confirmed"
                   order_code: "PL20241201ABCD1234"
                   customer_id: "CUS-2024-001"
                   status: "confirmed"
@@ -58,6 +64,7 @@ paths:
               simulation:
                 summary: 模擬確認（測試用）
                 value:
+                  event_type: "order.confirmed"
                   order_code: "PL20241201ABCD1234"
                   customer_id: "CUS-2024-001"
                   status: "confirmed"
@@ -119,6 +126,7 @@ paths:
             schema:
               $ref: '#/components/schemas/TimeoutRequest'
             example:
+              event_type: "order.timeout"
               order_code: "PL20241201EFGH5678"
               customer_id: "CUS-2024-001"
               timeout_at: "2024-12-01T15:00:00+08:00"
@@ -217,6 +225,13 @@ components:
         - order_code
         - customer_id
       properties:
+        event_type:
+          type: string
+          description: |
+            事件類型（建議提供）
+          enum:
+            - order.confirmed
+          example: "order.confirmed"
         order_code:
           type: string
           description: 訂單編號
@@ -227,7 +242,7 @@ components:
           example: "CUS-2024-001"
         status:
           type: string
-          description: 確認狀態
+          description: 訂單狀態
           enum:
             - confirmed
           example: "confirmed"
@@ -249,6 +264,13 @@ components:
         - customer_id
         - timeout_at
       properties:
+        event_type:
+          type: string
+          description: |
+            事件類型（建議提供）
+          enum:
+            - order.timeout
+          example: "order.timeout"
         order_code:
           type: string
           description: 訂單編號
