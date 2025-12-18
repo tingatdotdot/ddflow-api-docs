@@ -1,21 +1,23 @@
 openapi: 3.1.0
 info:
   title: ddflow ALPHA Webhook API
-  version: 1.1.0
+  version: 1.2.0
   description: |
     ## ddflow Webhook 端點 (接收 ALPHA 通知)
 
     此文件定義 ddflow 系統提供給 ALPHA 呼叫的 Webhook 端點。
-    當 LINE 確認完成或逾時時，ALPHA 系統會呼叫這些端點通知 ddflow。
+    當 LINE 確認完成、逾時或額度變更時，ALPHA 系統會呼叫這些端點通知 ddflow。
 
     ### Webhook 類型
     - **確認通知 (Confirmation)**: LINE 推播授權確認完成時發送
     - **逾時通知 (Timeout)**: LINE 確認逾時時發送
+    - **額度變更通知 (Quota Change)**: 客戶額度變更時發送
 
     ### Event Types
     建議 Webhook 請求包含 `event_type` 欄位以便識別事件類型：
     - `order.confirmed` - 訂單已確認
     - `order.timeout` - 訂單確認逾時
+    - `quota.changed` - 額度變更
 
     ### Base URL
     - Production: `https://platform.ddflow.money/api`
@@ -217,6 +219,92 @@ paths:
                 success: false
                 error: "Order not found"
 
+  /webhooks/alpha/quota-change:
+    post:
+      operationId: handleQuotaChange
+      summary: 額度變更通知
+      description: |
+        當客戶額度發生變更時，ALPHA 系統呼叫此端點通知 ddflow。
+        ddflow 會儲存最新的額度資訊以供查詢。
+
+        ### 觸發時機
+        - 客戶額度核准或調整
+        - 額度核銷或退款完成
+        - 額度圈存或釋放
+
+        ### ddflow 處理流程
+        1. 更新或建立 CustomerQuota 記錄
+        2. 記錄額度變更歷史
+
+      tags:
+        - ALPHA Webhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuotaChangeRequest'
+            examples:
+              quota_approved:
+                summary: 額度核准
+                value:
+                  event_type: "quota.changed"
+                  customer_id: "CUS-2024-001"
+                  customer_name: "測試企業股份有限公司"
+                  approved_amount: 5000000
+                  captured_amount: 0
+                  available_amount: 5000000
+                  reserved_amount: 0
+                  changed_at: "2024-12-01T10:00:00+08:00"
+                  change_reason: "額度核准"
+              quota_captured:
+                summary: 額度已核銷
+                value:
+                  event_type: "quota.changed"
+                  customer_id: "CUS-2024-001"
+                  customer_name: "測試企業股份有限公司"
+                  approved_amount: 5000000
+                  captured_amount: 150000
+                  available_amount: 4850000
+                  reserved_amount: 0
+                  changed_at: "2024-12-01T15:30:00+08:00"
+                  change_reason: "訂單 PL20241201ABCD1234 核銷"
+      responses:
+        '200':
+          description: 額度變更通知處理成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuotaChangeResponse'
+              example:
+                success: true
+                message: "Quota updated"
+                data:
+                  customer_id: "CUS-2024-001"
+                  approved_amount: 5000000
+                  available_amount: 4850000
+                  last_synced_at: "2024-12-01T15:30:00+08:00"
+        '422':
+          description: 請求參數驗證失敗
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+              example:
+                message: "The customer_id field is required."
+                errors:
+                  customer_id:
+                    - "The customer_id field is required."
+        '500':
+          description: 處理失敗
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error: "Processing failed"
+
 components:
   schemas:
     ConfirmationRequest:
@@ -294,6 +382,91 @@ components:
           type: string
           description: 訂單編號
           example: "PL20241201EFGH5678"
+
+    QuotaChangeRequest:
+      type: object
+      required:
+        - customer_id
+        - approved_amount
+      properties:
+        event_type:
+          type: string
+          description: 事件類型
+          enum:
+            - quota.changed
+          example: "quota.changed"
+        customer_id:
+          type: string
+          description: 商家代碼 (Headquarter UID)
+          example: "CUS-2024-001"
+        customer_name:
+          type: string
+          description: 商家名稱
+          example: "測試企業股份有限公司"
+        approved_amount:
+          type: integer
+          description: 核准額度（總額）
+          minimum: 0
+          example: 5000000
+        captured_amount:
+          type: integer
+          description: 已核銷金額
+          minimum: 0
+          example: 150000
+        available_amount:
+          type: integer
+          description: 可用額度
+          minimum: 0
+          example: 4850000
+        reserved_amount:
+          type: integer
+          description: 圈存中金額
+          minimum: 0
+          example: 0
+        changed_at:
+          type: string
+          format: date-time
+          description: 變更時間 (ISO 8601 格式)
+          example: "2024-12-01T15:30:00+08:00"
+        change_reason:
+          type: string
+          description: 變更原因說明
+          example: "訂單 PL20241201ABCD1234 核銷"
+
+    QuotaChangeResponse:
+      type: object
+      required:
+        - success
+        - message
+      properties:
+        success:
+          type: boolean
+          description: 是否成功
+          example: true
+        message:
+          type: string
+          description: 回應訊息
+          example: "Quota updated"
+        data:
+          type: object
+          properties:
+            customer_id:
+              type: string
+              description: 商家代碼
+              example: "CUS-2024-001"
+            approved_amount:
+              type: integer
+              description: 核准額度
+              example: 5000000
+            available_amount:
+              type: integer
+              description: 可用額度
+              example: 4850000
+            last_synced_at:
+              type: string
+              format: date-time
+              description: 最後同步時間
+              example: "2024-12-01T15:30:00+08:00"
 
     SuccessResponse:
       type: object
