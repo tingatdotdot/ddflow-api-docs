@@ -69,6 +69,7 @@ paths:
                 value:
                   event_type: "disbursement.complete"
                   order_code: "PL20241201ABCD1234"
+                  customer_id: "CUST-ABC123"
                   batch_id: "B12345"
                   processed_at: "2024-12-01T15:30:00+08:00"
                   status: "completed"
@@ -95,6 +96,7 @@ paths:
                 value:
                   event_type: "disbursement.complete"
                   order_code: "PL20241201ABCD1234"
+                  customer_id: "CUST-ABC123"
                   batch_id: "B12345"
                   processed_at: "2024-12-01T15:30:00+08:00"
                   status: "partial"
@@ -263,6 +265,7 @@ paths:
         - 手動標記員工轉帳完成
 
         ### 欄位說明
+        - `customer_id`: 客戶編號，用於識別交易歸屬
         - `is_last_employee`: 表示此員工是否為該訂單的最後一筆撥款
         - `batch_id`: 批次編號，用於追蹤付款批次
 
@@ -280,6 +283,7 @@ paths:
                 value:
                   event_type: "employee.transfer.complete"
                   order_code: "PL20241201ABCD1234"
+                  customer_id: "CUST-ABC123"
                   batch_id: "B12345"
                   status: "disbursing"
                   employee_id: "EMP001"
@@ -293,6 +297,7 @@ paths:
                 value:
                   event_type: "employee.transfer.complete"
                   order_code: "PL20241201ABCD1234"
+                  customer_id: "CUST-ABC123"
                   batch_id: "B12345"
                   status: "disbursed"
                   employee_id: "EMP003"
@@ -339,6 +344,7 @@ paths:
         - 手動標記員工轉帳失敗
 
         ### 欄位說明
+        - `customer_id`: 客戶編號，用於識別交易歸屬
         - `reason`: 失敗原因
         - `is_last_employee`: 表示此員工是否為該訂單的最後一筆撥款
         - `batch_id`: 批次編號，用於追蹤付款批次
@@ -357,6 +363,7 @@ paths:
                 value:
                   event_type: "employee.transfer.failed"
                   order_code: "PL20241201ABCD1234"
+                  customer_id: "CUST-ABC123"
                   batch_id: "B12345"
                   status: "disbursing"
                   employee_id: "EMP002"
@@ -370,6 +377,7 @@ paths:
                 value:
                   event_type: "employee.transfer.failed"
                   order_code: "PL20241201ABCD1234"
+                  customer_id: "CUST-ABC123"
                   batch_id: "B12345"
                   status: "partially_disbursed"
                   employee_id: "EMP003"
@@ -430,6 +438,11 @@ components:
           type: string
           description: 訂單編號
           example: "PL20241201ABCD1234"
+        customer_id:
+          type: string
+          nullable: true
+          description: 客戶編號，用於識別交易歸屬
+          example: "CUST-ABC123"
         batch_id:
           type: string
           nullable: true
@@ -611,6 +624,11 @@ components:
           type: string
           description: 訂單編號
           example: "PL20241201ABCD1234"
+        customer_id:
+          type: string
+          nullable: true
+          description: 客戶編號，用於識別交易歸屬
+          example: "CUST-ABC123"
         batch_id:
           type: string
           nullable: true
@@ -679,6 +697,11 @@ components:
           type: string
           description: 訂單編號
           example: "PL20241201ABCD1234"
+        customer_id:
+          type: string
+          nullable: true
+          description: 客戶編號，用於識別交易歸屬
+          example: "CUST-ABC123"
         batch_id:
           type: string
           nullable: true
