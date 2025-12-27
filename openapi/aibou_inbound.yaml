@@ -1,0 +1,200 @@
+openapi: 3.1.0
+info:
+  title: AIBOU Inbound File Format
+  version: 1.1.0
+  description: |
+    ## AIBOU 薪資墊付上傳檔案格式
+
+    此文件定義 AIBOU 系統上傳至 ddflow 的薪資墊付 inbound 檔案格式規範。
+
+    ### 支援格式
+    - **JSON** 格式（建議）
+    - **CSV** 格式
+
+    ### 上傳方式
+    透過 SFTP 上傳至指定的 inbound 目錄。
+
+    ### 處理流程
+    1. AIBOU 上傳檔案至 `/inbound/` 目錄
+    2. ddflow 每 5 分鐘掃描新檔案
+    3. 處理完成後，檔案移動至 `/processed/{YYYY-MM-DD}/`
+
+    ### 版本歷史
+    | 版本 | 日期 | 變更說明 |
+    |------|------|----------|
+    | 1.1 | 2024-12-27 | 新增 `batch_id` 移至最上層；新增 `payment_date` 欄位 |
+    | 1.0 | 2024-12-01 | 初始版本 |
+
+components:
+  schemas:
+    PayrollInboundFile:
+      type: object
+      required:
+        - customer_id
+        - batch_id
+        - tax_id
+        - payment_date
+        - total_amount
+        - employees
+      properties:
+        customer_id:
+          type: string
+          description: |
+            客戶編號，用於識別 ALPHA 額度歸屬的客戶。
+            通常是付款門市的統一編號或商家代碼。
+          example: "CUST-ABC123"
+        batch_id:
+          type: string
+          maxLength: 6
+          pattern: "^[A-Z0-9]{1,6}$"
+          description: |
+            批次編號，作為 webhook 通知辨識交易用。
+            - 最多 6 碼
+            - 僅允許大寫英文字母 (A-Z) 及數字 (0-9)
+            - 系統會自動將小寫轉為大寫
+            - 系統會自動移除非法字元
+          example: "B12345"
+        tax_id:
+          type: string
+          pattern: "^[0-9]{8}$"
+          description: |
+            統一編號，用於手續費發票開立。
+            8 碼數字。
+          example: "12345678"
+        payment_date:
+          type: string
+          format: date
+          description: |
+            預定付款日，格式為 `YYYY-MM-DD`。
+            - 必須為現在時間的 24 小時之後
+            - 此日期會作為 ACH 付款檔的付款日期 (P-TDATE)
+          example: "2024-12-15"
+        total_amount:
+          type: integer
+          minimum: 1
+          description: |
+            本次總付款金額（新台幣）。
+            需與 employees 各筆金額加總相符。
+          example: 150000
+        identity_id:
+          type: string
+          nullable: true
+          description: |
+            上傳的使用者身分 ID 識別碼。
+            可用於追蹤操作者。（選填）
+          example: "ID-2024-001"
+        employees:
+          type: array
+          minItems: 1
+          description: 員工付款資訊陣列
+          items:
+            $ref: '#/components/schemas/EmployeePayment'
+        metadata:
+          type: object
+          nullable: true
+          description: |
+            第三方要傳遞的額外資訊，可自訂任意欄位。（選填）
+          additionalProperties: true
+          example:
+            payroll_period: "2024-12"
+            company_name: "範例科技股份有限公司"
+            created_at: "2024-12-01T10:00:00+08:00"
+
+    EmployeePayment:
+      type: object
+      required:
+        - employee_id
+        - employee_name
+        - bank_code
+        - bank_account
+        - amount
+      properties:
+        employee_id:
+          type: string
+          description: 員工編號，用於識別員工
+          example: "EMP001"
+        employee_name:
+          type: string
+          description: 員工姓名
+          example: "王小明"
+        bank_code:
+          type: string
+          pattern: "^[0-9]{3}$"
+          description: 銀行代碼，3 碼數字
+          example: "012"
+        bank_account:
+          type: string
+          description: 銀行帳號
+          example: "1234567890123"
+        amount:
+          type: integer
+          minimum: 1
+          description: 撥款金額（新台幣）
+          example: 50000
+
+    # CSV 檔案命名規則說明
+    CsvFilenameFormat:
+      type: object
+      description: |
+        CSV 檔案命名規則：`{TAX_ID}_{PAYMENT_DATE}_{BATCH_ID}.csv`
+
+        範例：`85111436_20241215_B12345.csv`
+      properties:
+        tax_id:
+          type: string
+          description: 8 碼統一編號
+          example: "85111436"
+        payment_date:
+          type: string
+          description: 8 碼日期 YYYYMMDD（需為現在時間的 24 小時之後）
+          example: "20241215"
+        batch_id:
+          type: string
+          description: 批次編號
+          example: "B12345"
+
+# 完整範例
+x-examples:
+  json-example:
+    summary: JSON 格式完整範例
+    value:
+      customer_id: "CUST-ABC123"
+      batch_id: "B12345"
+      tax_id: "12345678"
+      payment_date: "2024-12-15"
+      total_amount: 150000
+      identity_id: "ID-2024-001"
+      employees:
+        - employee_id: "EMP001"
+          employee_name: "王小明"
+          bank_code: "012"
+          bank_account: "1234567890123"
+          amount: 50000
+        - employee_id: "EMP002"
+          employee_name: "李小華"
+          bank_code: "812"
+          bank_account: "9876543210987"
+          amount: 45000
+        - employee_id: "EMP003"
+          employee_name: "張大文"
+          bank_code: "004"
+          bank_account: "5555666677778"
+          amount: 55000
+      metadata:
+        payroll_period: "2024-12"
+        company_name: "範例科技股份有限公司"
+        created_at: "2024-12-01T10:00:00+08:00"
+
+  csv-example:
+    summary: CSV 格式範例
+    description: |
+      檔名：`85111436_20241215_B12345.csv`
+
+      ```csv
+      employee_id,employee_name,bank_code,bank_account,amount
+      EMP001,王小明,012,1234567890123,50000
+      EMP002,李小華,812,9876543210987,45000
+      EMP003,張大文,004,5555666677778,55000
+      ```
+
+      **注意**：CSV 格式的 `customer_id` 會使用檔名中的 `TAX_ID`。
