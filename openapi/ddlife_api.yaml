@@ -1,0 +1,274 @@
+openapi: 3.1.0
+info:
+  title: ddflow to DDLIFE API
+  version: 1.0.0
+  description: |
+    ## ddflow 呼叫 DDLIFE API 文件
+
+    此文件定義 ddflow 系統呼叫 DDLIFE 的 API 端點。
+    當 ALPHA 通知額度變更時，ddflow 會呼叫 DDLIFE API 通知信用狀態更新。
+
+    ### 認證方式
+    使用 OAuth2 Client Credentials 流程取得 access_token。
+
+    ### 環境
+    - Production: `https://ddlife.dotdot.cc`
+    - Staging: `https://ddlife-dev.dotdot.cc`
+
+servers:
+  - url: https://ddlife.dotdot.cc
+    description: DDLIFE Production Server
+  - url: https://ddlife-dev.dotdot.cc
+    description: DDLIFE Staging Server
+
+paths:
+  /oauth/token:
+    post:
+      operationId: getToken
+      summary: 取得 OAuth2 Access Token
+      description: |
+        使用 Client Credentials 流程取得 access_token。
+        Token 有效期為 2 小時 (7200 秒)。
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required:
+                - grant_type
+                - client_id
+                - client_secret
+              properties:
+                grant_type:
+                  type: string
+                  description: OAuth2 授權類型
+                  enum:
+                    - client_credentials
+                  example: "client_credentials"
+                client_id:
+                  type: string
+                  description: Client ID
+                  example: "your-client-id"
+                client_secret:
+                  type: string
+                  description: Client Secret
+                  example: "your-client-secret"
+      responses:
+        '200':
+          description: Token 取得成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+              example:
+                token_type: "Bearer"
+                expires_in: 7200
+                access_token: "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9..."
+        '401':
+          description: 認證失敗
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "invalid_client"
+                error_description: "Client authentication failed"
+
+  /api/v1/credit-status:
+    post:
+      operationId: updateCreditStatus
+      summary: 更新信用狀態
+      description: |
+        通知 DDLIFE 更新客戶的信用狀態。
+
+        ### 觸發時機
+        - 當 ALPHA 通知額度變更時
+        - 額度核准、拒絕或待審核狀態變更時
+
+        ### 狀態對應
+        - `approved`: 額度已核准且有可用額度
+        - `rejected`: 額度未核准或為零
+        - `pending`: 額度待審核或已用完
+      tags:
+        - Credit Status
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreditStatusRequest'
+            examples:
+              approved:
+                summary: 額度已核准
+                value:
+                  code: "alphabear"
+                  ddc_sso_user_id: "CUS-2024-001"
+                  cid: "CUS-2024-001"
+                  status: "approved"
+                  message: "核准額度: 5,000,000, 可用額度: 4,850,000"
+              rejected:
+                summary: 額度未核准
+                value:
+                  code: "alphabear"
+                  ddc_sso_user_id: "CUS-2024-002"
+                  cid: "CUS-2024-002"
+                  status: "rejected"
+                  message: "額度未核准"
+              pending:
+                summary: 額度待審核
+                value:
+                  code: "alphabear"
+                  ddc_sso_user_id: "CUS-2024-003"
+                  cid: "CUS-2024-003"
+                  status: "pending"
+                  message: "額度審核中"
+      responses:
+        '200':
+          description: 狀態更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+              example:
+                success: true
+                message: "Credit status updated"
+        '401':
+          description: 認證失敗
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Unauthenticated"
+        '422':
+          description: 請求參數驗證失敗
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+              example:
+                message: "The ddc_sso_user_id field is required."
+                errors:
+                  ddc_sso_user_id:
+                    - "The ddc_sso_user_id field is required."
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    TokenResponse:
+      type: object
+      required:
+        - token_type
+        - expires_in
+        - access_token
+      properties:
+        token_type:
+          type: string
+          description: Token 類型
+          example: "Bearer"
+        expires_in:
+          type: integer
+          description: Token 有效期（秒）
+          example: 7200
+        access_token:
+          type: string
+          description: Access Token
+          example: "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9..."
+
+    CreditStatusRequest:
+      type: object
+      required:
+        - code
+        - ddc_sso_user_id
+        - cid
+        - status
+      properties:
+        code:
+          type: string
+          description: 服務代碼 (固定為 "alphabear")
+          enum:
+            - alphabear
+          example: "alphabear"
+        ddc_sso_user_id:
+          type: string
+          description: DDC SSO 使用者 ID
+          example: "CUS-2024-001"
+        cid:
+          type: string
+          description: 公司統編或商家代碼
+          example: "CUS-2024-001"
+        status:
+          type: string
+          description: 信用狀態
+          enum:
+            - approved
+            - rejected
+            - pending
+          example: "approved"
+        message:
+          type: string
+          description: 狀態說明訊息（選填）
+          example: "核准額度: 5,000,000, 可用額度: 4,850,000"
+
+    SuccessResponse:
+      type: object
+      required:
+        - success
+      properties:
+        success:
+          type: boolean
+          description: 是否成功
+          example: true
+        message:
+          type: string
+          description: 回應訊息
+          example: "Credit status updated"
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: 錯誤代碼
+          example: "Unauthenticated"
+        error_description:
+          type: string
+          description: 錯誤說明
+          example: "Client authentication failed"
+
+    ValidationErrorResponse:
+      type: object
+      required:
+        - message
+        - errors
+      properties:
+        message:
+          type: string
+          description: 驗證錯誤摘要
+          example: "The ddc_sso_user_id field is required."
+        errors:
+          type: object
+          description: 各欄位的驗證錯誤
+          additionalProperties:
+            type: array
+            items:
+              type: string
+          example:
+            ddc_sso_user_id:
+              - "The ddc_sso_user_id field is required."
+
+tags:
+  - name: Authentication
+    description: OAuth2 認證
+  - name: Credit Status
+    description: 信用狀態更新

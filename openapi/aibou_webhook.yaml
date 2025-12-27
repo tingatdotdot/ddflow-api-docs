@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: AIBOU Webhook API
-  version: 1.1.0
+  version: 1.2.0
   description: |
     ## AIBOU Webhook 接收端點
 
@@ -19,6 +19,12 @@ info:
     - `disbursement.failed` - 撥款失敗
     - `employee.transfer.complete` - 員工轉帳成功
     - `employee.transfer.failed` - 員工轉帳失敗
+
+    ### Batch ID
+    所有撥款相關的 Webhook 都會包含 `batch_id` 欄位，用於追蹤付款批次：
+    - 最多 6 碼，由大寫英文字母及數字組成
+    - 來源於 AIBOU 上傳的薪資檔 metadata 或檔名中的 batch_no
+    - 可用於與 ACH 回檔比對
 
     ### 認證方式
     所有 Webhook 請求將包含簽章驗證（待確認實作方式）
@@ -61,7 +67,9 @@ paths:
               all_success:
                 summary: 全部撥款成功
                 value:
+                  event_type: "disbursement.complete"
                   order_code: "PL20241201ABCD1234"
+                  batch_id: "B12345"
                   processed_at: "2024-12-01T15:30:00+08:00"
                   status: "completed"
                   total_amount: 150000
@@ -85,7 +93,9 @@ paths:
               partial_success:
                 summary: 部分撥款失敗
                 value:
+                  event_type: "disbursement.complete"
                   order_code: "PL20241201ABCD1234"
+                  batch_id: "B12345"
                   processed_at: "2024-12-01T15:30:00+08:00"
                   status: "partial"
                   total_amount: 150000
@@ -241,11 +251,165 @@ paths:
                 error_code: "INTERNAL_ERROR"
                 error: "Internal server error"
 
+  /webhooks/ddflow/employee-transfer-complete:
+    post:
+      operationId: notifyEmployeeTransferComplete
+      summary: 員工轉帳成功通知
+      description: |
+        當單一員工撥款完成時，ddflow 系統會呼叫此端點通知 AIBOU。
+
+        ### 觸發時機
+        - ACH 轉帳結果回報，該員工轉帳成功
+        - 手動標記員工轉帳完成
+
+        ### 欄位說明
+        - `is_last_employee`: 表示此員工是否為該訂單的最後一筆撥款
+        - `batch_id`: 批次編號，用於追蹤付款批次
+
+      tags:
+        - Webhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmployeeTransferCompleteRequest'
+            examples:
+              in_progress:
+                summary: 還有其他員工待處理
+                value:
+                  event_type: "employee.transfer.complete"
+                  order_code: "PL20241201ABCD1234"
+                  batch_id: "B12345"
+                  status: "disbursing"
+                  employee_id: "EMP001"
+                  employee_name: "王小明"
+                  amount: 50000
+                  transfer_reference: "TXN202412010001"
+                  is_last_employee: false
+                  notified_at: "2024-12-01T15:30:00+08:00"
+              last_employee:
+                summary: 最後一筆員工撥款
+                value:
+                  event_type: "employee.transfer.complete"
+                  order_code: "PL20241201ABCD1234"
+                  batch_id: "B12345"
+                  status: "disbursed"
+                  employee_id: "EMP003"
+                  employee_name: "張大文"
+                  amount: 55000
+                  transfer_reference: "TXN202412010003"
+                  is_last_employee: true
+                  notified_at: "2024-12-01T15:35:00+08:00"
+      responses:
+        '200':
+          description: 通知接收成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookSuccessResponse'
+        '400':
+          description: 請求格式錯誤
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookErrorResponse'
+        '401':
+          description: 認證失敗
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookErrorResponse'
+        '500':
+          description: 伺服器內部錯誤
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookErrorResponse'
+
+  /webhooks/ddflow/employee-transfer-failed:
+    post:
+      operationId: notifyEmployeeTransferFailed
+      summary: 員工轉帳失敗通知
+      description: |
+        當單一員工撥款失敗時，ddflow 系統會呼叫此端點通知 AIBOU。
+
+        ### 觸發時機
+        - ACH 轉帳結果回報，該員工轉帳失敗
+        - 手動標記員工轉帳失敗
+
+        ### 欄位說明
+        - `reason`: 失敗原因
+        - `is_last_employee`: 表示此員工是否為該訂單的最後一筆撥款
+        - `batch_id`: 批次編號，用於追蹤付款批次
+
+      tags:
+        - Webhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmployeeTransferFailedRequest'
+            examples:
+              in_progress:
+                summary: 還有其他員工待處理
+                value:
+                  event_type: "employee.transfer.failed"
+                  order_code: "PL20241201ABCD1234"
+                  batch_id: "B12345"
+                  status: "disbursing"
+                  employee_id: "EMP002"
+                  employee_name: "李小華"
+                  amount: 45000
+                  reason: "帳號錯誤"
+                  is_last_employee: false
+                  notified_at: "2024-12-01T15:30:00+08:00"
+              last_employee:
+                summary: 最後一筆員工撥款（失敗）
+                value:
+                  event_type: "employee.transfer.failed"
+                  order_code: "PL20241201ABCD1234"
+                  batch_id: "B12345"
+                  status: "partially_disbursed"
+                  employee_id: "EMP003"
+                  employee_name: "張大文"
+                  amount: 55000
+                  reason: "帳號已凍結"
+                  is_last_employee: true
+                  notified_at: "2024-12-01T15:35:00+08:00"
+      responses:
+        '200':
+          description: 通知接收成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookSuccessResponse'
+        '400':
+          description: 請求格式錯誤
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookErrorResponse'
+        '401':
+          description: 認證失敗
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookErrorResponse'
+        '500':
+          description: 伺服器內部錯誤
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookErrorResponse'
+
 components:
   schemas:
     DisbursementCompleteRequest:
       type: object
       required:
+        - event_type
         - order_code
         - processed_at
         - status
@@ -256,10 +420,26 @@ components:
         - successful_employees
         - failed_employees
       properties:
+        event_type:
+          type: string
+          description: 事件類型
+          enum:
+            - disbursement.complete
+          example: "disbursement.complete"
         order_code:
           type: string
           description: 訂單編號
           example: "PL20241201ABCD1234"
+        batch_id:
+          type: string
+          nullable: true
+          description: |
+            批次編號，用於追蹤付款批次
+            - 最多 6 碼，由大寫英文字母及數字組成
+            - 來源於 AIBOU 上傳的薪資檔 metadata 或檔名
+          maxLength: 6
+          pattern: "^[A-Z0-9]{1,6}$"
+          example: "B12345"
         processed_at:
           type: string
           format: date-time
@@ -408,6 +588,142 @@ components:
           description: |
             退還的額度金額（僅在 reserve_cancelled 為 true 時有值）
           example: 150000
+
+    EmployeeTransferCompleteRequest:
+      type: object
+      required:
+        - event_type
+        - order_code
+        - employee_id
+        - employee_name
+        - amount
+        - transfer_reference
+        - is_last_employee
+        - notified_at
+      properties:
+        event_type:
+          type: string
+          description: 事件類型
+          enum:
+            - employee.transfer.complete
+          example: "employee.transfer.complete"
+        order_code:
+          type: string
+          description: 訂單編號
+          example: "PL20241201ABCD1234"
+        batch_id:
+          type: string
+          nullable: true
+          description: |
+            批次編號，用於追蹤付款批次
+            - 最多 6 碼，由大寫英文字母及數字組成
+            - 來源於 AIBOU 上傳的薪資檔 metadata 或檔名
+          maxLength: 6
+          pattern: "^[A-Z0-9]{1,6}$"
+          example: "B12345"
+        status:
+          type: string
+          description: |
+            訂單當前狀態
+            - `disbursing`: 撥款進行中（還有其他員工待處理）
+            - `disbursed`: 全部撥款完成
+          example: "disbursing"
+        employee_id:
+          type: string
+          description: 員工編號
+          example: "EMP001"
+        employee_name:
+          type: string
+          description: 員工姓名
+          example: "王小明"
+        amount:
+          type: integer
+          description: 撥款金額
+          example: 50000
+        transfer_reference:
+          type: string
+          description: 銀行轉帳參考編號
+          example: "TXN202412010001"
+        is_last_employee:
+          type: boolean
+          description: |
+            是否為該訂單的最後一筆員工撥款
+            - `true`: 此員工是最後一筆，訂單撥款已全部處理完畢
+            - `false`: 還有其他員工待處理
+          example: false
+        notified_at:
+          type: string
+          format: date-time
+          description: 通知時間 (ISO 8601 格式)
+          example: "2024-12-01T15:30:00+08:00"
+
+    EmployeeTransferFailedRequest:
+      type: object
+      required:
+        - event_type
+        - order_code
+        - employee_id
+        - employee_name
+        - amount
+        - reason
+        - is_last_employee
+        - notified_at
+      properties:
+        event_type:
+          type: string
+          description: 事件類型
+          enum:
+            - employee.transfer.failed
+          example: "employee.transfer.failed"
+        order_code:
+          type: string
+          description: 訂單編號
+          example: "PL20241201ABCD1234"
+        batch_id:
+          type: string
+          nullable: true
+          description: |
+            批次編號，用於追蹤付款批次
+            - 最多 6 碼，由大寫英文字母及數字組成
+            - 來源於 AIBOU 上傳的薪資檔 metadata 或檔名
+          maxLength: 6
+          pattern: "^[A-Z0-9]{1,6}$"
+          example: "B12345"
+        status:
+          type: string
+          description: |
+            訂單當前狀態
+            - `disbursing`: 撥款進行中（還有其他員工待處理）
+            - `partially_disbursed`: 部分撥款完成（有失敗的員工）
+          example: "disbursing"
+        employee_id:
+          type: string
+          description: 員工編號
+          example: "EMP002"
+        employee_name:
+          type: string
+          description: 員工姓名
+          example: "李小華"
+        amount:
+          type: integer
+          description: 預計撥款金額
+          example: 45000
+        reason:
+          type: string
+          description: 失敗原因
+          example: "帳號錯誤"
+        is_last_employee:
+          type: boolean
+          description: |
+            是否為該訂單的最後一筆員工撥款
+            - `true`: 此員工是最後一筆，訂單撥款已全部處理完畢
+            - `false`: 還有其他員工待處理
+          example: false
+        notified_at:
+          type: string
+          format: date-time
+          description: 通知時間 (ISO 8601 格式)
+          example: "2024-12-01T15:30:00+08:00"
 
     WebhookSuccessResponse:
       type: object

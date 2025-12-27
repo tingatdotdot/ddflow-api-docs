@@ -157,6 +157,7 @@ paths:
                   customer_id: "CUS-2024-001"
                   orders:
                     - order_code: "PL20241215ABCD1234"
+                      batch_id: "B12345"
                       status: "disbursed"
                       total_amount: 150000
                       disbursed_amount: 150000
@@ -165,6 +166,7 @@ paths:
                       created_at: "2024-12-15T10:00:00+08:00"
                       updated_at: "2024-12-15T14:00:00+08:00"
                     - order_code: "PL20241213EFGH5678"
+                      batch_id: "B12346"
                       status: "disbursed"
                       total_amount: 100000
                       disbursed_amount: 80000
@@ -224,6 +226,7 @@ paths:
                 success: true
                 data:
                   order_code: "PL20241213ABCD1234"
+                  batch_id: "B12345"
                   customer_id: "CUS-2024-001"
                   status: "disbursed"
                   total_amount: 100000
@@ -306,6 +309,7 @@ paths:
                 success: true
                 data:
                   order_code: "PL20241213ABCD1234"
+                  batch_id: "B12345"
                   customer_id: "CUS-2024-001"
                   current_status: "disbursed"
                   timeline:
@@ -503,6 +507,15 @@ components:
           type: string
           description: 訂單編號
           example: "PL20241213ABCD1234"
+        batch_id:
+          type: string
+          nullable: true
+          description: |
+            批次編號，用於追蹤付款批次
+            - 最多 6 碼，由大寫英文字母及數字組成
+            - 來源於 AIBOU 上傳的薪資檔 metadata 或檔名
+          maxLength: 6
+          example: "B12345"
         status:
           type: string
           description: 訂單狀態
@@ -562,6 +575,13 @@ components:
             order_code:
               type: string
               example: "PL20241213ABCD1234"
+            batch_id:
+              type: string
+              nullable: true
+              description: |
+                批次編號，用於追蹤付款批次
+                - 最多 6 碼，由大寫英文字母及數字組成
+              example: "B12345"
             customer_id:
               type: string
               example: "CUS-2024-001"
@@ -646,6 +666,13 @@ components:
             order_code:
               type: string
               example: "PL20241213ABCD1234"
+            batch_id:
+              type: string
+              nullable: true
+              description: |
+                批次編號，用於追蹤付款批次
+                - 最多 6 碼，由大寫英文字母及數字組成
+              example: "B12345"
             customer_id:
               type: string
               example: "CUS-2024-001"
