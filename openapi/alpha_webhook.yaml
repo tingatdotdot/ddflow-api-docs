@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: ddflow ALPHA Webhook API
-  version: 1.3.0
+  version: 1.4.0
   description: |
     ## ddflow Webhook 端點 (接收 ALPHA 通知)
 
@@ -246,7 +246,7 @@ paths:
               $ref: '#/components/schemas/QuotaChangeRequest'
             examples:
               quota_approved:
-                summary: 額度核准
+                summary: 已核准待啟用
                 value:
                   event_type: "quota.changed"
                   customer_id: "CUS-2024-001"
@@ -258,7 +258,7 @@ paths:
                   status: "Approved"
                   changed_at: "2024-12-01T10:00:00+08:00"
                   change_reason: "額度核准"
-              quota_active:
+              quota_activated:
                 summary: 額度已啟用
                 value:
                   event_type: "quota.changed"
@@ -268,10 +268,10 @@ paths:
                   captured_amount: 150000
                   available_amount: 4850000
                   reserved_amount: 0
-                  status: "Active"
+                  status: "Activated"
                   changed_at: "2024-12-01T15:30:00+08:00"
                   change_reason: "訂單 PL20241201ABCD1234 核銷"
-              quota_blocked:
+              quota_suspended:
                 summary: 暫無額度
                 value:
                   event_type: "quota.changed"
@@ -281,7 +281,7 @@ paths:
                   captured_amount: 5000000
                   available_amount: 0
                   reserved_amount: 0
-                  status: "Blocked"
+                  status: "Suspended"
                   changed_at: "2024-12-01T16:00:00+08:00"
                   change_reason: "額度已用盡"
               quota_rejected:
@@ -297,6 +297,19 @@ paths:
                   status: "Rejected"
                   changed_at: "2024-12-01T10:00:00+08:00"
                   change_reason: "審核未通過"
+              quota_reviewing:
+                summary: 已申請審核中
+                value:
+                  event_type: "quota.changed"
+                  customer_id: "CUS-2024-001"
+                  customer_name: "測試企業股份有限公司"
+                  approved_amount: 0
+                  captured_amount: 0
+                  available_amount: 0
+                  reserved_amount: 0
+                  status: "Reviewing"
+                  changed_at: "2024-12-01T09:00:00+08:00"
+                  change_reason: "額度審核中"
       responses:
         '200':
           description: 額度變更通知處理成功
@@ -459,22 +472,26 @@ components:
             狀態對照表：
             | ALPHA Status | 中文說明 | DDLife Status |
             |--------------|----------|---------------|
-            | Pre-approval | 待申請額度 | review |
+            | Not applied | 待申請額度 | review |
             | Applying | 額度申請中 | review |
-            | Pending | 已申請審核中 | review |
-            | Approved | 已核准待啟用 | approved |
+            | Reviewing | 已申請審核中 | review |
+            | Approved | 已核准待啟用 | review |
             | Rejected | 婉拒給額 | rejected |
-            | Active | 額度已啟用 | approved |
-            | Blocked | 暫無額度 | rejected |
+            | Activated | 額度已啟用 | approved |
+            | Suspended | 暫無額度 | rejected |
+
+            若 status 為空，則依據額度欄位判斷：
+            - approved: available_amount > 0 且 approved_amount > 0
+            - review: 其他情況
           enum:
-            - Pre-approval
+            - Not applied
             - Applying
-            - Pending
+            - Reviewing
             - Approved
             - Rejected
-            - Active
-            - Blocked
-          example: "Approved"
+            - Activated
+            - Suspended
+          example: "Activated"
         changed_at:
           type: string
           format: date-time
