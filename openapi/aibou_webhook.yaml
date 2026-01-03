@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: AIBOU Webhook API
-  version: 1.2.0
+  version: 1.3.0
   description: |
     ## AIBOU Webhook 接收端點
 
@@ -10,11 +10,13 @@ info:
     ### 通知類型
     - **撥款完成通知 (Disbursement Complete)**: 當薪資墊付撥款作業完成時發送
     - **逾時通知 (Timeout)**: 當 LINE 確認逾時時發送
+    - **額度圈存失敗 (Reserve Failed)**: 當 ALPHA 額度圈存失敗時發送
     - **員工轉帳通知**: 單一員工撥款成功/失敗時發送
 
     ### Event Types
     所有 Webhook 請求都包含 `event_type` 欄位，可能的值包含：
     - `order.timeout` - 訂單確認逾時
+    - `order.reserve_failed` - 額度圈存失敗
     - `disbursement.complete` - 撥款完成
     - `disbursement.failed` - 撥款失敗
     - `employee.transfer.complete` - 員工轉帳成功
@@ -196,6 +198,7 @@ paths:
                   event_type: "order.timeout"
                   order_code: "PL20241201EFGH5678"
                   customer_id: "CUS-2024-001"
+                  batch_id: "B12345"
                   status: "timeout"
                   notified_at: "2024-12-01T16:00:00+08:00"
                   message: "墊付確認逾時"
@@ -207,6 +210,7 @@ paths:
                   event_type: "order.timeout"
                   order_code: "PL20241201EFGH5678"
                   customer_id: "CUS-2024-001"
+                  batch_id: "B12345"
                   status: "timeout"
                   notified_at: "2024-12-01T16:00:00+08:00"
                   message: "墊付確認逾時"
@@ -222,6 +226,95 @@ paths:
               example:
                 success: true
                 message: "Timeout notification received"
+        '400':
+          description: 請求格式錯誤
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookErrorResponse'
+              example:
+                success: false
+                error_code: "INVALID_REQUEST"
+                error: "Missing required field: order_code"
+        '401':
+          description: 認證失敗
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookErrorResponse'
+              example:
+                success: false
+                error_code: "UNAUTHORIZED"
+                error: "Invalid signature"
+        '500':
+          description: 伺服器內部錯誤
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookErrorResponse'
+              example:
+                success: false
+                error_code: "INTERNAL_ERROR"
+                error: "Internal server error"
+
+  /webhooks/ddflow/reserve-failed:
+    post:
+      operationId: notifyReserveFailed
+      summary: 額度圈存失敗通知
+      description: |
+        當 ALPHA 額度圈存失敗時，ddflow 系統會呼叫此端點通知 AIBOU。
+
+        ### 觸發時機
+        - ALPHA API reserve 呼叫失敗
+        - 額度不足或其他圈存錯誤
+
+        ### 處理建議
+        1. 記錄失敗事件
+        2. 更新內部訂單狀態
+        3. 通知相關人員進行後續處理
+        4. 確認是否需要重新上傳薪資檔或調整額度
+
+      tags:
+        - Webhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReserveFailedRequest'
+            examples:
+              quota_insufficient:
+                summary: 額度不足
+                value:
+                  event_type: "order.reserve_failed"
+                  order_code: "PL20241201EFGH5678"
+                  customer_id: "CUS-2024-001"
+                  batch_id: "B12345"
+                  status: "failed"
+                  notified_at: "2024-12-01T14:00:00+08:00"
+                  message: "額度圈存失敗"
+                  error: "Quota insufficient: required 150000, available 50000"
+              api_error:
+                summary: API 錯誤
+                value:
+                  event_type: "order.reserve_failed"
+                  order_code: "PL20241201EFGH5678"
+                  customer_id: "CUS-2024-001"
+                  batch_id: "B12345"
+                  status: "failed"
+                  notified_at: "2024-12-01T14:00:00+08:00"
+                  message: "額度圈存失敗"
+                  error: "Customer not found"
+      responses:
+        '200':
+          description: 通知接收成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookSuccessResponse'
+              example:
+                success: true
+                message: "Reserve failed notification received"
         '400':
           description: 請求格式錯誤
           content:
@@ -573,6 +666,16 @@ components:
           type: string
           description: 商家代碼 (Headquarter UID)
           example: "CUS-2024-001"
+        batch_id:
+          type: string
+          nullable: true
+          description: |
+            批次編號，用於追蹤付款批次
+            - 最多 6 碼，由大寫英文字母及數字組成
+            - 來源於 AIBOU 上傳的薪資檔 metadata 或檔名
+          maxLength: 6
+          pattern: "^[A-Z0-9]{1,6}$"
+          example: "B12345"
         status:
           type: string
           enum:
@@ -601,6 +704,62 @@ components:
           description: |
             退還的額度金額（僅在 reserve_cancelled 為 true 時有值）
           example: 150000
+
+    ReserveFailedRequest:
+      type: object
+      required:
+        - event_type
+        - order_code
+        - customer_id
+        - status
+        - notified_at
+        - message
+      properties:
+        event_type:
+          type: string
+          description: |
+            事件類型，用於識別 Webhook 通知種類
+          enum:
+            - order.reserve_failed
+          example: "order.reserve_failed"
+        order_code:
+          type: string
+          description: 訂單編號
+          example: "PL20241201EFGH5678"
+        customer_id:
+          type: string
+          description: 商家代碼 (Headquarter UID)
+          example: "CUS-2024-001"
+        batch_id:
+          type: string
+          nullable: true
+          description: |
+            批次編號，用於追蹤付款批次
+            - 最多 6 碼，由大寫英文字母及數字組成
+            - 來源於 AIBOU 上傳的薪資檔 metadata 或檔名
+          maxLength: 6
+          pattern: "^[A-Z0-9]{1,6}$"
+          example: "B12345"
+        status:
+          type: string
+          enum:
+            - failed
+          description: 訂單狀態 (固定為 failed)
+          example: "failed"
+        notified_at:
+          type: string
+          format: date-time
+          description: 通知時間 (ISO 8601 格式)
+          example: "2024-12-01T14:00:00+08:00"
+        message:
+          type: string
+          description: 失敗訊息
+          example: "額度圈存失敗"
+        error:
+          type: string
+          description: |
+            詳細錯誤訊息，說明圈存失敗的原因
+          example: "Quota insufficient: required 150000, available 50000"
 
     EmployeeTransferCompleteRequest:
       type: object
